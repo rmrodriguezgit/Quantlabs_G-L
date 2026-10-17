@@ -86,6 +86,18 @@ class LiveMarket:
         quotes={side:q for side,q in quotes.items() if q is not None}
         if not quotes: raise ValueError('Ningún resultado tiene vendedores')
         return dict(up=quotes.get('UP',{}).get('price',0),down=quotes.get('DOWN',{}).get('price',0),source='POLYMARKET · ASKS EN VIVO',quotes=quotes,slug=m['slug'],condition_id=m['conditionId'],question=m['question'],resolution=m['resolutionSource'],fee_rate=float(m.get('feeSchedule',{}).get('rate',0)) if m.get('feesEnabled') else 0,timestamp=time.time())
+    async def candle_close(self,cycle):
+        if cycle%300 or time.time()<cycle+300:
+            raise ValueError('La ventana BTC todavía no ha cerrado')
+        rows=await self.get('https://api.binance.com/api/v3/klines',{
+            'symbol':'BTCUSDT','interval':'5m','startTime':cycle*1000,
+            'endTime':(cycle+300)*1000-1,'limit':1})
+        if len(rows)!=1 or int(rows[0][0])!=cycle*1000 or int(rows[0][6])!=(cycle+300)*1000-1:
+            raise ValueError('El cierre histórico no corresponde a la ventana solicitada')
+        price=float(rows[0][4])
+        if not math.isfinite(price) or price<=0:raise ValueError('Cierre BTC inválido')
+        return dict(price=price,closed_at=cycle+300,source='BINANCE')
+
     async def winner(self,condition):
         m=await self.get(f'https://clob.polymarket.com/markets/{condition}')
         if m.get('condition_id')!=condition or not m.get('closed'):

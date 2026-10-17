@@ -11,6 +11,8 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response
+from .research import ResearchStore
 from .engine import PaperTradingEngine, LayaMLXValidator, exploratory_decision, gan_laya_decision
 from .market import LiveMarket
 
@@ -23,9 +25,19 @@ if PROFILE in ('exploratory','gan_laya') and MODE!='live': raise ValueError('Exp
 ACCOUNT_KEY=f'{MODE}-exploratory' if PROFILE in ('exploratory','gan_laya') else MODE
 DATA=Path(__file__).parent/'data'
 engine=PaperTradingEngine(DATA/f'{ACCOUNT_KEY}.json')
+research=ResearchStore(DATA/f'{MODE}-research.sqlite3')
 validator=LayaMLXValidator()
 gan=None
-state=dict(timestamp=time.time(),mode=MODE,profile=PROFILE,cycle=0,remaining=300,price=0,reference=1,probability=.5,estimator='Inicializando modelos…',validator=dict(score=0,rsi=50,engine='Inicializando',approved=False,model_connected=False,model_probability=None),decision=dict(action='WAIT',ev=0,fraction=0),reason='Conectando datos y modelos',odds=dict(up=0,down=0,source='SIN DATOS',available=False),account=engine.snapshot(),candles=[],error=None,gates=[],events=[],model_ready=False,data_updated_at=None,gan_quality={},blockers=['Inicializando motor'])
+
+def research_report():
+    report=research.report()
+    evaluation=Path(__file__).parent/'training'/'latest_evaluation.json'
+    if evaluation.exists():
+        try:report={**report,'offline':json.loads(evaluation.read_text())}
+        except (OSError,ValueError):pass
+    return report
+
+state=dict(timestamp=time.time(),mode=MODE,profile=PROFILE,cycle=0,remaining=300,price=0,reference=1,probability=.5,estimator='Inicializando modelos…',validator=dict(score=0,rsi=50,engine='Inicializando',approved=False,model_connected=False,model_probability=None),decision=dict(action='WAIT',ev=0,fraction=0),reason='Conectando datos y modelos',odds=dict(up=0,down=0,source='SIN DATOS',available=False),account=engine.snapshot(),candles=[],error=None,gates=[],events=[],model_ready=False,data_updated_at=None,gan_quality={},blockers=['Inicializando motor'],research=research_report())
 events=[]
 
 def event(message,kind='INFO'):
@@ -78,7 +90,7 @@ async def load_models():
 
 async def loop():
     global state
-    rng=random.Random(21);price=65000.;previous=None;last_train=None;probability=.5;last_resolution=0;last_log=0
+    rng=random.Random(21);price=65000.;previous=None;last_train=None;probability=.5;last_log=0
     candles=[]
     if MODE=='demo':
         for _ in range(200):
@@ -97,15 +109,6 @@ async def loop():
                         candles,current,cycle=await live.btc();price=current['close'];reference=current['open']
                         try: market=await live.quotes(cycle)
                         except Exception as exc: quote_error=str(exc)
-                        # Pending positions survive restart and wait for official results.
-                        if now-last_resolution>10:
-                            last_resolution=now
-                            for condition in {t.condition_id for t in engine.trades if t.status=='OPEN' and t.condition_id and t.cycle+300<now}:
-                                try:
-                                    winner=await live.winner(condition)
-                                    if winner:
-                                        engine.resolve(condition,winner);event('Liquidación oficial: '+winner+' / '+condition[:14])
-                                except Exception as exc: event('Resolución pendiente: '+str(exc),'WARNING')
                     else:
                         price*=math.exp(rng.gauss(0,.00007));reference=candles[-1]['close'] if previous!=cycle else state['reference']
                         if previous is not None and previous!=cycle:
@@ -171,7 +174,14 @@ async def loop():
                     # Expected feed interruptions must not flood the server with tracebacks.
                     if time.time()-last_log>=15:
                         event('Datos no disponibles: '+str(exc),'WARNING');last_log=time.time()
-                    state={**state,'timestamp':time.time(),'remaining':max(0,cycle+300-time.time()),'error':str(exc),'reason':'Datos no disponibles: ejecución bloqueada','decision':{'action':'WAIT','ev':0,'fraction':0},'odds':{**state['odds'],'available':False},'blockers':['Datos no disponibles: '+str(exc)],'gates':[],'account':engine.snapshot(),'events':events.copy()}
+                    state={**state,'timestamp':time.time(),'cycle':cycle,'remaining':max(0,cycle+300-time.time()),'error':str(exc),'reason':'Datos no disponibles: ejecución bloqueada','decision':{'action':'WAIT','ev':0,'fraction':0},'odds':{**state['odds'],'available':False},'blockers':['Datos no disponibles: '+str(exc)],'gates':[],'account':engine.snapshot(),'events':events.copy()}
+                try:
+                    research.record(state)
+                    state['research']=research_report()
+                    state['research_error']=None
+                except Exception as exc:
+                    state['research_error']='No se pudo guardar la auditoría: '+str(exc)
+                    log.error('Research audit failed: %s',exc)
                 await asyncio.sleep(max(.05,1-(time.monotonic()-tick)))
     finally:
         model_task.cancel()
@@ -179,20 +189,64 @@ async def loop():
         except asyncio.CancelledError: pass
 
 
+async def resolve_markets():
+    """Resolve audit-only markets too, even if BTC ingestion is unavailable."""
+    retry_after={}
+    close_retry={}
+    async with httpx.AsyncClient(timeout=8,headers={'User-Agent':'LAYA-Paper-Research/1.1'}) as client:
+        live=LiveMarket(client)
+        while True:
+            now=time.time()
+            # Backfill exact completed candles independently of binary settlement.
+            cycles=sorted({t.cycle for t in engine.trades if t.closing_price is None and t.cycle+300<now and close_retry.get(t.cycle,0)<=now})[:8]
+            for cycle in cycles:
+                close_retry[cycle]=now+30
+                try:
+                    close=await live.candle_close(cycle)
+                    engine.record_close(cycle,close['price'],close['closed_at'],close['source'])
+                except Exception as exc:
+                    log.warning('BTC closing price pending for %s: %s',cycle,exc)
+            actual={t.condition_id for t in engine.trades if (t.status=='OPEN' or t.official_outcome is None) and t.condition_id and t.cycle+300<now}
+            conditions=actual|set(research.pending_conditions(now))
+            for condition in conditions:
+                if retry_after.get(condition,0)>now:continue
+                retry_after[condition]=now+30
+                research.mark_checked(condition,now)
+                try:
+                    winner=await live.winner(condition)
+                    if winner:
+                        engine.resolve(condition,winner)
+                        research.resolve(condition,winner)
+                        event('Resolución oficial para cuenta/auditoría: '+winner+' / '+condition[:14])
+                except Exception as exc:
+                    log.warning('Resolution pending for %s: %s',condition[:14],exc)
+            await asyncio.sleep(5)
+
+
 @asynccontextmanager
 async def lifespan(app):
-    task=asyncio.create_task(loop())
-    yield
-    task.cancel()
-    try: await task
-    except asyncio.CancelledError: pass
-    engine.save()
+    tasks=[asyncio.create_task(loop())]
+    if MODE=='live':tasks.append(asyncio.create_task(resolve_markets()))
+    try:
+        yield
+    finally:
+        for task in tasks:task.cancel()
+        for task in tasks:
+            try:await task
+            except asyncio.CancelledError:pass
+        engine.save()
+        research.close()
 
 app=FastAPI(title='LAYA Paper Trader',lifespan=lifespan)
 @app.get('/api/state')
 async def get_state(): return state
 @app.get('/api/health')
 async def health(): return {'ok':bool(state['candles']) and not state.get('error'),'mode':MODE,'paper_only':True,'profile':PROFILE,'models_ready':state['model_ready']}
+@app.get('/api/research')
+async def get_research():return research_report()
+@app.get('/api/research/signals.csv')
+async def export_signals(limit:int=10000):
+    return Response(research.export_csv(limit),media_type='text/csv; charset=utf-8',headers={'Content-Disposition':'attachment; filename="quantlabs-signals.csv"'})
 @app.post('/api/pause')
 async def pause(): engine.paused=not engine.paused; return {'paused':engine.paused}
 @app.websocket('/ws')

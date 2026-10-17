@@ -117,6 +117,10 @@ class Position:
     below_minimum: bool=False
     gan_probability: float | None=None
     laya_model_probability: float | None=None
+    closing_price: float | None=None
+    closing_time: float | None=None
+    closing_source: str | None=None
+    official_outcome: str | None=None
 
 
 class PaperTradingEngine:
@@ -162,11 +166,24 @@ class PaperTradingEngine:
         self.trades.append(Position(len(self.trades)+1,cycle,side,price,stake,tokens,reference,decision['state'],score,now,condition_id=market['condition_id'] if market else '',market_slug=market['slug'] if market else '',fee=fee,validator_status=validator_status,profile=decision.get('profile','strategy'),entry_ev=decision['ev'],below_minimum=below_minimum,gan_probability=decision.get('gan_probability'),laya_model_probability=decision.get('laya_model_probability'))); self.save()
         return self.trades[-1]
 
+    def record_close(self,cycle,price,closed_at,source='BINANCE'):
+        if not math.isfinite(price) or price<=0 or abs(closed_at-(cycle+300))>.001:
+            raise ValueError('Invalid completed candle close')
+        changed=False
+        for t in self.trades:
+            if t.cycle==cycle and t.closing_price is None:
+                t.closing_price=price;t.closing_time=closed_at;t.closing_source=source;changed=True
+        if changed:self.save()
+        return changed
+
     def resolve(self,condition,side):
         if side not in ('UP','DOWN'): raise ValueError('Invalid settlement side')
+        changed=False
         for t in self.trades:
-            if t.status=='OPEN' and t.condition_id==condition:
-                self._settle_position(t,t.side==side)
+            if t.condition_id!=condition:continue
+            if t.official_outcome is None:t.official_outcome=side;changed=True
+            if t.status=='OPEN':self._settle_position(t,t.side==side)
+        if changed:self.save()
 
     def _settle_position(self,t,win):
         payout=t.tokens if win else 0
@@ -179,6 +196,7 @@ class PaperTradingEngine:
             # Demo convention: tie resolves DOWN. Live resolution must use market rules.
             win=(closing>t.reference)==(t.side=='UP')
             if t.condition_id: continue  # Live positions require official market resolution.
+            t.closing_price=closing;t.closing_time=cycle+300;t.closing_source='DEMO'
             self._settle_position(t,win)
     def snapshot(self):
         done=[t for t in self.trades if t.status!='OPEN']; profits=sum(max(t.pnl,0) for t in done); losses=-sum(min(t.pnl,0) for t in done)

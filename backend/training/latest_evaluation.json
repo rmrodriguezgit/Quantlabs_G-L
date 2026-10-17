@@ -1,0 +1,210 @@
+{
+  "data_source": "Binance BTCUSDT closed 1m; binary labels from Binance 5m, not official Chainlink settlement",
+  "steps": 800,
+  "segments": {
+    "train": {
+      "examples": 25855,
+      "cycles": 5171,
+      "start": 1789606800,
+      "end": 1791158100
+    },
+    "calibration": {
+      "examples": 8605,
+      "cycles": 1721,
+      "start": 1791159600,
+      "end": 1791675900
+    },
+    "test": {
+      "examples": 8630,
+      "cycles": 1726,
+      "start": 1791677400,
+      "end": 1792195200
+    }
+  },
+  "metrics": {
+    "conditional_raw": {
+      "brier": 0.2313381846813341,
+      "log_loss": 0.6512641853617114,
+      "accuracy": 0.5820393974507532
+    },
+    "conditional_calibrated": {
+      "brier": 0.19772459070531734,
+      "log_loss": 0.577357390298908,
+      "accuracy": 0.6805330243337195
+    },
+    "diffusion": {
+      "brier": 0.18585500367931826,
+      "log_loss": 0.5508314564022021,
+      "accuracy": 0.6922363847045191
+    },
+    "legacy_retrained": {
+      "brier": 0.1888466541442549,
+      "log_loss": 0.559032703903093,
+      "accuracy": 0.6886442641946697
+    },
+    "constant_50": {
+      "brier": 0.25,
+      "log_loss": 0.6931471805599453,
+      "accuracy": 0.4936268829663963
+    }
+  },
+  "calibration": [
+    1.7732768058776855,
+    -0.9819877743721008
+  ],
+  "brier_difference_95ci": {
+    "diffusion": [
+      0.008903329423039029,
+      0.014763761887456176
+    ],
+    "legacy_retrained": [
+      0.006274605413529424,
+      0.011641327716671868
+    ]
+  },
+  "by_elapsed": {
+    "0": {
+      "conditional_raw": {
+        "brier": 0.27489995090783725,
+        "log_loss": 0.7454722779597454,
+        "accuracy": 0.4936268829663963
+      },
+      "conditional_calibrated": {
+        "brier": 0.2527218397173297,
+        "log_loss": 0.6986351234710046,
+        "accuracy": 0.48261877172653533
+      },
+      "diffusion": {
+        "brier": 0.25,
+        "log_loss": 0.6931471805599454,
+        "accuracy": 0.4936268829663963
+      },
+      "legacy_retrained": {
+        "brier": 0.2501470003868448,
+        "log_loss": 0.693441206202506,
+        "accuracy": 0.4936268829663963
+      },
+      "constant_50": {
+        "brier": 0.25,
+        "log_loss": 0.6931471805599454,
+        "accuracy": 0.4936268829663963
+      }
+    },
+    "60": {
+      "conditional_raw": {
+        "brier": 0.25687627791130546,
+        "log_loss": 0.7070913463603452,
+        "accuracy": 0.5098493626882966
+      },
+      "conditional_calibrated": {
+        "brier": 0.22594862634922505,
+        "log_loss": 0.6433748444914905,
+        "accuracy": 0.6280417149478563
+      },
+      "diffusion": {
+        "brier": 0.2157605988686509,
+        "log_loss": 0.6198413099787861,
+        "accuracy": 0.6425260718424102
+      },
+      "legacy_retrained": {
+        "brier": 0.22045788016960388,
+        "log_loss": 0.635647178713535,
+        "accuracy": 0.6338354577056778
+      },
+      "constant_50": {
+        "brier": 0.25,
+        "log_loss": 0.6931471805599454,
+        "accuracy": 0.4936268829663963
+      }
+    },
+    "120": {
+      "conditional_raw": {
+        "brier": 0.24166127903912388,
+        "log_loss": 0.6746692029473791,
+        "accuracy": 0.5417149478563151
+      },
+      "conditional_calibrated": {
+        "brier": 0.20620124523754535,
+        "log_loss": 0.6014488192048147,
+        "accuracy": 0.694090382387022
+      },
+      "diffusion": {
+        "brier": 0.18885798848514887,
+        "log_loss": 0.5641023675317186,
+        "accuracy": 0.7108922363847046
+      },
+      "legacy_retrained": {
+        "brier": 0.19446976933530252,
+        "log_loss": 0.5817577439242052,
+        "accuracy": 0.7039397450753186
+      },
+      "constant_50": {
+        "brier": 0.25,
+        "log_loss": 0.6931471805599454,
+        "accuracy": 0.4936268829663963
+      }
+    },
+    "180": {
+      "conditional_raw": {
+        "brier": 0.21502577888623345,
+        "log_loss": 0.6174928737220157,
+        "accuracy": 0.6181923522595597
+      },
+      "conditional_calibrated": {
+        "brier": 0.1729674124236817,
+        "log_loss": 0.5267440204804563,
+        "accuracy": 0.7746234067207416
+      },
+      "diffusion": {
+        "brier": 0.15344674542101858,
+        "log_loss": 0.4759766044252539,
+        "accuracy": 0.7815758980301275
+      },
+      "legacy_retrained": {
+        "brier": 0.15792225556627784,
+        "log_loss": 0.4918715662540648,
+        "accuracy": 0.7804171494785631
+      },
+      "constant_50": {
+        "brier": 0.25,
+        "log_loss": 0.6931471805599454,
+        "accuracy": 0.4936268829663963
+      }
+    },
+    "240": {
+      "conditional_raw": {
+        "brier": 0.16822763666217047,
+        "log_loss": 0.5115952258190711,
+        "accuracy": 0.7468134414831982
+      },
+      "conditional_calibrated": {
+        "brier": 0.13078382979880482,
+        "log_loss": 0.4165841438467732,
+        "accuracy": 0.8232908458864426
+      },
+      "diffusion": {
+        "brier": 0.12120968562177287,
+        "log_loss": 0.4010898195153057,
+        "accuracy": 0.8325608342989571
+      },
+      "legacy_retrained": {
+        "brier": 0.12123636526324534,
+        "log_loss": 0.39244582442115356,
+        "accuracy": 0.8314020857473928
+      },
+      "constant_50": {
+        "brier": 0.25,
+        "log_loss": 0.6931471805599454,
+        "accuracy": 0.4936268829663963
+      }
+    }
+  },
+  "promoted": false,
+  "reason": "Offline challenger only. Requires prospective evaluation against official settlement and executable quotes. No historical order books: no profit claim.",
+  "legacy_note": "Retrained frozen legacy architecture, not reconstruction of historical live weights.",
+  "limitations": [
+    "Single chronological holdout; no walk-forward or regime replication yet.",
+    "Minute-boundary observations do not validate the live 15\u201330-second entry window.",
+    "Calibration and model selection need a new future holdout after this report."
+  ]
+}
