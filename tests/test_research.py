@@ -10,7 +10,7 @@ class ResearchTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.path=Path(self.tmp.name)/'research.sqlite3';self.store=ResearchStore(self.path)
     def tearDown(self):self.store.close();self.tmp.cleanup()
     def snapshot(self,now=570,cycle=300,p=.8,**updates):
-        audit=dict(score=1,model_probability=.6,model_connected=True,approved=False,rsi=60,ema_fast=101,ema_slow=100,delta_volume=5)
+        audit=dict(technical_pass=True,score=1,model_probability=.6,model_connected=True,approved=False,rsi=60,ema_fast=101,ema_slow=100,delta_volume=5)
         s=dict(timestamp=now,cycle=cycle,mode='live',profile='gan_laya',probability=p,remaining=cycle+300-now,
             data_updated_at=now-1,gan_quality={'healthy':True},validator=audit,decision={'action':'WAIT'},
             odds=dict(up=.5,down=.51,fee_rate=.07,timestamp=now,available=True,condition_id=f'c{cycle}',slug=f'btc-updown-5m-{cycle}',quotes={'UP':dict(size=100,min_size=5,timestamp=now),'DOWN':dict(size=100,min_size=5,timestamp=now)}),

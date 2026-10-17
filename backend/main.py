@@ -145,6 +145,7 @@ async def loop():
                         gates.extend([
                             dict(name='GAN UP >58% / DOWN <42%',ok=probability>.58 or probability<.42),
                             dict(name='Concordancia técnica >70%',ok=audit['score']>.7),
+                            dict(name='Precio y momentum confirman '+audit.get('side','dirección'),ok=audit.get('technical_pass',False)),
                             dict(name='Aprobación LAYA MLX >70%',ok=bool(audit.get('model_connected') and (audit.get('model_probability') or 0)>.7 and audit['approved'])),
                             dict(name='EV neto >0.05',ok=decision['ev']>.05),
                             dict(name='Política Q permite la dirección GAN',ok=decision.get('q_permits',False)),

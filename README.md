@@ -101,3 +101,27 @@ la referencia de difusión y **no se promueve**. No hay backtest de beneficio:
 faltan libros de cuotas y liquidaciones oficiales históricas. No modificar umbrales
 para acertar retrospectivamente dos pérdidas. Una nueva selección o ajuste requiere
 otra muestra futura; este holdout ya ha sido observado.
+
+### v1.2.0: validación independiente de UP y DOWN
+
+`backend/directional.py` define políticas versionadas por lado. UP exige RSI>50,
+EMA9>EMA21, volumen firmado positivo, precio sobre ambas EMA y último cambio
+positivo; DOWN evalúa sus desigualdades bajistas. Se requiere concordancia >70%
+(4 de 5), y precio + momentum son confirmaciones obligatorias. Ninguna igualdad
+cuenta como apoyo. Son filtros de coherencia experimentales, sin ventaja demostrada.
+
+LAYA recibe dos inferencias separadas, con lado, evidencia, reglas y probabilidad
+de ese lado. Un error en una inferencia no reutiliza la aprobación de la otra.
+La confianza textual de LAYA no equivale a probabilidad de ganar. Se mantiene
+P(lado)>58%, EV neto>0.05, LAYA>70%, $1 incluidas tasas, cuotas frescas y controles
+de liquidez/ciclo. Rechazar UP no autoriza DOWN. Las políticas tienen umbrales
+independientes, inicialmente iguales: cualquier asimetría numérica debe justificarse
+en validación temporal futura, con cuotas y resoluciones oficiales.
+
+El dashboard muestra los cinco checks de cada lado, sus dos aprobaciones MLX,
+probabilidades y EV. Las nuevas órdenes guardan evidencia direccional y versión.
+La Q-table usa un espacio de estados nuevo para no heredar valores aprendidos bajo
+otra semántica de score. El laboratorio inicia una cohorte nueva, conserva la
+anterior en SQLite y separa entradas, PnL y acierto de UP/DOWN. No cambia resultados
+históricos ni reinicia el bankroll. Las métricas solo cubren señales prospectivas
+ancladas a 30–15s; no equivalen al rendimiento de todas las entradas del motor.

@@ -14,8 +14,8 @@ def finite_payload(value):
     return value
 
 
-VERSION='1.1.0'
-COHORT='v1.1.0-anchor30to15-ev005-slippage001'
+VERSION='1.2.0'
+COHORT='v1.2.0-directional-v1-anchor30to15-ev005-slippage001'
 VARIANTS=[('gan','GAN sola'),('technical','GAN + indicadores'),('laya','GAN + indicadores + LAYA')]
 
 
@@ -120,7 +120,7 @@ class ResearchStore:
             base=[];stress=[]
             for r in resolved:
                 payload=json.loads(r['payload']);audit=payload['validator']
-                if key in ('technical','laya') and audit.get('score',0)<=.7:continue
+                if key in ('technical','laya') and (audit.get('score',0)<=.7 or not audit.get('technical_pass',False)):continue
                 if key=='laya' and not (audit.get('model_connected') and audit.get('approved') and (audit.get('model_probability') or 0)>.7):continue
                 result=self.payoff(payload,r['probability'],r['winner'])
                 if result is not None:
@@ -134,7 +134,11 @@ class ResearchStore:
             variants.append(dict(key=key,label=label,trades=len(base),win_rate=sum(t['won'] for t in base)/len(base) if base else None,
                 pnl=sum(t['pnl'] for t in base) if base else None,profit_factor=gains/losses if losses else None,
                 max_drawdown=drawdown if base else None,entry_rate=len(base)/len(resolved) if resolved else None,
-                below_minimum=sum(t['below_minimum'] for t in base),stress_trades=len(stress),stress_pnl=sum(t['pnl'] for t in stress) if stress else None))
+                below_minimum=sum(t['below_minimum'] for t in base),stress_trades=len(stress),stress_pnl=sum(t['pnl'] for t in stress) if stress else None,
+                directions={side:dict(trades=sum(t['side']==side for t in base),
+                    pnl=sum(t['pnl'] for t in base if t['side']==side),
+                    win_rate=sum(t['won'] for t in base if t['side']==side)/sum(t['side']==side for t in base) if any(t['side']==side for t in base) else None)
+                    for side in ('UP','DOWN')}))
         bins=[]
         for index in range(10):
             bucket=[r for r in resolved if min(9,int(r['probability']*10))==index]

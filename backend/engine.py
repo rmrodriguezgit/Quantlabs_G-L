@@ -4,7 +4,8 @@ import os
 import random
 import json
 from pathlib import Path
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
+from .directional import technical_audits, POLICIES, POLICY_VERSION, signal_side
 
 
 class LayaMLXValidator:
@@ -15,42 +16,42 @@ class LayaMLXValidator:
         self.load_error = None
 
     def validate(self, candles, probability):
-        closes = [c['close'] for c in candles]
-        changes = [b-a for a,b in zip(closes[-15:-1], closes[-14:])]
-        gain = sum(max(x,0) for x in changes)/max(1,len(changes))
-        loss = sum(max(-x,0) for x in changes)/max(1,len(changes))
-        rsi = 100-100/(1+gain/loss) if loss else (100 if gain else 50)
-        def ema(n):
-            value=closes[0]
-            for c in closes[1:]: value += 2/(n+1)*(c-value)
-            return value
-        delta=sum(c.get('delta',(1 if c['close']>c['open'] else -1)*c['volume']) for c in candles[-5:])
-        up=probability>.5
-        # Neutral indicators support neither side. DOWN requires strictly bearish evidence.
-        votes=[rsi>50,ema(9)>ema(21),delta>0] if up else [rsi<50,ema(9)<ema(21),delta<0]
-        score=sum(votes)/3
-        model_probability = None
-        if self.model_name:
-            try:
-                if self.model is None:
-                    import laya_mlx
-                    self.model = laya_mlx.load(self.model_name)
-                result = self.model.predict(
-                    json.dumps(dict(side='UP' if up else 'DOWN',gan_probability=probability,rsi=rsi,ema_fast=ema(9),ema_slow=ema(21),delta_volume=delta,technical_agreement=score)),
-                    {"audit":{"type":"choice","instructions":"Approve only if RSI direction, EMA cross and signed candle volume agree with the proposed side. This is a consistency audit, not a profitability prediction.","criteria":["LAYA_APPROVED","LAYA_REJECTED"]}})
-                model_probability = float(result['answers']['audit']['probabilities']['LAYA_APPROVED'])
-                if not math.isfinite(model_probability) or not 0<=model_probability<=1:
-                    raise ValueError('Invalid LAYA probability')
-                self.load_error = None
-            except Exception as exc:
-                self.load_error = str(exc)
-        approved = score>.7 and (model_probability>.7 if model_probability is not None else not self.model_name)
-        return dict(side='UP' if up else 'DOWN',score=score,rsi=rsi,delta_volume=delta,ema_fast=ema(9),ema_slow=ema(21),approved=approved,model_probability=model_probability,model_connected=model_probability is not None,model_error=self.load_error,status='LAYA_APPROVED' if approved and model_probability is not None else 'LAYA_REJECTED' if model_probability is not None else 'TECHNICAL_BASELINE',engine='LAYA MLX + technical audit' if model_probability is not None else 'technical baseline · LAYA MLX not connected')
+        sides=technical_audits(candles)
+        for side,audit in sides.items():
+            policy=POLICIES[side]
+            model_probability=None;error=None
+            if self.model_name:
+                try:
+                    if self.model is None:
+                        import laya_mlx
+                        self.model=laya_mlx.load(self.model_name)
+                    # Each direction gets its own explicit evidence and MLX inference.
+                    result=self.model.predict(json.dumps({**audit,'gan_up_probability':probability,
+                        'side_probability':probability if side=='UP' else 1-probability}),
+                        {"audit":{"type":"choice","instructions":
+                            f"Audit only ENTRY_{side}. Require the supplied directional checks, "
+                            "technical_pass=true and current price and momentum confirmation. "
+                            "Reject neutral or conflicting evidence. Approval of the opposite side "
+                            "must never imply approval here. This is consistency, not profitability.",
+                            "criteria":["LAYA_APPROVED","LAYA_REJECTED"]}})
+                    model_probability=float(result['answers']['audit']['probabilities']['LAYA_APPROVED'])
+                    if not math.isfinite(model_probability) or not 0<=model_probability<=1:
+                        raise ValueError('Invalid LAYA probability')
+                except Exception as exc:
+                    error=str(exc);model_probability=None
+            approved=bool(audit['technical_pass'] and (model_probability>policy.min_mlx if model_probability is not None else not self.model_name))
+            audit.update(approved=approved,model_probability=model_probability,
+                         model_connected=model_probability is not None,model_error=error,
+                         status='LAYA_APPROVED' if approved and model_probability is not None else 'LAYA_REJECTED' if model_probability is not None else 'TECHNICAL_BASELINE',
+                         engine='LAYA MLX + directional audit' if model_probability is not None else 'technical baseline · LAYA MLX not connected')
+        self.load_error=next((a['model_error'] for a in sides.values() if a['model_error']),None)
+        selected='UP' if probability>.5 else 'DOWN'
+        return {**sides[selected],'sides':sides}
 
 
 class QLearningAgent:
     def __init__(self): self.table={}
-    def state(self,p,odds,score): return f'{int(p*10)}:{int(odds*10)}:{int(score*10)}'
+    def state(self,p,odds,score): return f'{POLICY_VERSION}:{int(p*10)}:{int(odds*10)}:{int(score*10)}'
     def decide(self,p,up,down,score,fee_rate=0):
         if not math.isfinite(p) or not 0<=p<=1:
             raise ValueError('Probability must be finite and between zero and one')
@@ -59,10 +60,12 @@ class QLearningAgent:
         for direction,prob,ask in [('UP',p,up),('DOWN',1-p,down)]:
             cost=ask*(1+fee_rate*(1-ask)) if math.isfinite(ask) else 0
             ev_side=prob/cost-1 if 0<cost<1 else -1
-            eligible=p>.58 if direction=='UP' else p<.42
+            policy=POLICIES[direction]
+            eligible=signal_side(p)==direction
             candidates[direction]=dict(probability=prob,ask=ask,effective_price=cost,
-                                       ev=ev_side,probability_pass=eligible,ev_pass=ev_side>.05)
-        side='UP' if candidates['UP']['probability_pass'] else 'DOWN' if candidates['DOWN']['probability_pass'] else 'WAIT'
+                                       ev=ev_side,probability_pass=eligible,ev_pass=ev_side>policy.min_ev)
+        side=signal_side(p)
+        policy=POLICIES[side] if side!='WAIT' else POLICIES['UP']
         probability=p if side=='UP' else 1-p
         price=up if side=='UP' else down
         price=price*(1+fee_rate*(1-price))
@@ -71,7 +74,7 @@ class QLearningAgent:
         state=self.state(p,price,score)
         q=self.table.setdefault(state,{'WAIT':0.,'UP':0.,'DOWN':0.})
         # Hard gates cannot be bypassed by exploration or Q-values.
-        action=side if side!='WAIT' and score>.7 and ev>.05 and q[side]>=q['WAIT'] else 'WAIT'
+        action=side if side!='WAIT' and score>policy.min_technical and ev>policy.min_ev and q[side]>=q['WAIT'] else 'WAIT'
         return dict(action=action,candidate=side,candidates=candidates,ev=ev,fraction=fraction,state=state,q=q.copy())
     def update(self,state,side,reward):
         # Each settled candle is a terminal episode: no bootstrap from future data.
@@ -94,15 +97,17 @@ def exploratory_decision(probability, up, down, fee_rate=0.):
 def gan_laya_decision(agent, probability, up, down, audit, fee_rate=0.):
     """GAN chooses side; technical agreement and actual MLX approval are mandatory."""
     d=agent.decide(probability,up,down,audit['score'],fee_rate)
-    candidate='UP' if probability>.58 else 'DOWN' if probability<.42 else 'WAIT'
+    candidate=signal_side(probability)
+    policy=POLICIES[candidate] if candidate!='WAIT' else POLICIES['UP']
     d['q_permits']=candidate!='WAIT' and d['q'][candidate]>=d['q']['WAIT']
     mlp=audit.get('model_probability')
     validated=bool(audit.get('model_connected') and audit.get('approved') and
-                   audit['score']>.7 and mlp is not None and mlp>.7 and
-                   audit.get('side',candidate)==candidate)
+                   audit['score']>policy.min_technical and mlp is not None and mlp>policy.min_mlx and
+                   audit.get('side')==candidate and audit.get('technical_pass',False))
     if not validated: d['action']='WAIT'
     d.update(profile='gan_laya',stake_usd=1.,fraction=0.,validated=validated,
-             gan_probability=probability,laya_model_probability=mlp)
+             gan_probability=probability,laya_model_probability=mlp,
+             directional_audit={k:audit.get(k) for k in ('side','policy_version','technical_pass','checks')})
     return d
 
 
@@ -133,6 +138,7 @@ class Position:
     closing_time: float | None=None
     closing_source: str | None=None
     official_outcome: str | None=None
+    directional_audit: dict=field(default_factory=dict)
 
 
 class PaperTradingEngine:
@@ -150,10 +156,12 @@ class PaperTradingEngine:
         if decision.get('profile')=='gan_laya':
             p=decision.get('gan_probability',.5)
             mlp=decision.get('laya_model_probability')
-            expected='UP' if p>.58 else 'DOWN' if p<.42 else 'WAIT'
-            if not (decision.get('validated') and score>.7 and mlp is not None and mlp>.7
+            expected=signal_side(p)
+            policy=POLICIES[expected] if expected!='WAIT' else POLICIES['UP']
+            if not (decision.get('validated') and score>policy.min_technical and mlp is not None and mlp>policy.min_mlx
                     and decision['action']==expected and expected!='WAIT' and validator_status=='LAYA_APPROVED'
-                    and decision['ev']>.05): return
+                    and decision['ev']>policy.min_ev and decision.get('directional_audit',{}).get('side')==expected
+                    and decision.get('directional_audit',{}).get('technical_pass')): return
         fixed=decision.get('stake_usd') if decision.get('profile') in ('exploratory','gan_laya') else None
         if fixed is not None and (fixed!=1. or self.cash<fixed): return
         stake=fixed if fixed is not None else round(self.cash*decision['fraction'],2)
@@ -175,7 +183,7 @@ class PaperTradingEngine:
             fee=tokens*market['fee_rate']*price*(1-price)
             stake=fixed if fixed is not None else tokens*price+fee
         self.cash-=stake
-        self.trades.append(Position(len(self.trades)+1,cycle,side,price,stake,tokens,reference,decision['state'],score,now,condition_id=market['condition_id'] if market else '',market_slug=market['slug'] if market else '',fee=fee,validator_status=validator_status,profile=decision.get('profile','strategy'),entry_ev=decision['ev'],below_minimum=below_minimum,gan_probability=decision.get('gan_probability'),laya_model_probability=decision.get('laya_model_probability'))); self.save()
+        self.trades.append(Position(len(self.trades)+1,cycle,side,price,stake,tokens,reference,decision['state'],score,now,condition_id=market['condition_id'] if market else '',market_slug=market['slug'] if market else '',fee=fee,validator_status=validator_status,profile=decision.get('profile','strategy'),entry_ev=decision['ev'],below_minimum=below_minimum,gan_probability=decision.get('gan_probability'),laya_model_probability=decision.get('laya_model_probability'),directional_audit=decision.get('directional_audit',{}))); self.save()
         return self.trades[-1]
 
     def record_close(self,cycle,price,closed_at,source='BINANCE'):
