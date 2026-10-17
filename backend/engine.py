@@ -26,7 +26,8 @@ class LayaMLXValidator:
             return value
         delta=sum(c.get('delta',(1 if c['close']>c['open'] else -1)*c['volume']) for c in candles[-5:])
         up=probability>.5
-        votes=[(rsi>50)==up,(ema(9)>ema(21))==up,(delta>0)==up]
+        # Neutral indicators support neither side. DOWN requires strictly bearish evidence.
+        votes=[rsi>50,ema(9)>ema(21),delta>0] if up else [rsi<50,ema(9)<ema(21),delta<0]
         score=sum(votes)/3
         model_probability = None
         if self.model_name:
@@ -44,14 +45,24 @@ class LayaMLXValidator:
             except Exception as exc:
                 self.load_error = str(exc)
         approved = score>.7 and (model_probability>.7 if model_probability is not None else not self.model_name)
-        return dict(score=score,rsi=rsi,delta_volume=delta,ema_fast=ema(9),ema_slow=ema(21),approved=approved,model_probability=model_probability,model_connected=model_probability is not None,model_error=self.load_error,status='LAYA_APPROVED' if approved and model_probability is not None else 'LAYA_REJECTED' if model_probability is not None else 'TECHNICAL_BASELINE',engine='LAYA MLX + technical audit' if model_probability is not None else 'technical baseline · LAYA MLX not connected')
+        return dict(side='UP' if up else 'DOWN',score=score,rsi=rsi,delta_volume=delta,ema_fast=ema(9),ema_slow=ema(21),approved=approved,model_probability=model_probability,model_connected=model_probability is not None,model_error=self.load_error,status='LAYA_APPROVED' if approved and model_probability is not None else 'LAYA_REJECTED' if model_probability is not None else 'TECHNICAL_BASELINE',engine='LAYA MLX + technical audit' if model_probability is not None else 'technical baseline · LAYA MLX not connected')
 
 
 class QLearningAgent:
     def __init__(self): self.table={}
     def state(self,p,odds,score): return f'{int(p*10)}:{int(odds*10)}:{int(score*10)}'
     def decide(self,p,up,down,score,fee_rate=0):
-        side='UP' if p>.58 else 'DOWN' if p<.42 else 'WAIT'
+        if not math.isfinite(p) or not 0<=p<=1:
+            raise ValueError('Probability must be finite and between zero and one')
+        # Independently price both binary outcomes; a rejected UP is not a DOWN signal.
+        candidates={}
+        for direction,prob,ask in [('UP',p,up),('DOWN',1-p,down)]:
+            cost=ask*(1+fee_rate*(1-ask)) if math.isfinite(ask) else 0
+            ev_side=prob/cost-1 if 0<cost<1 else -1
+            eligible=p>.58 if direction=='UP' else p<.42
+            candidates[direction]=dict(probability=prob,ask=ask,effective_price=cost,
+                                       ev=ev_side,probability_pass=eligible,ev_pass=ev_side>.05)
+        side='UP' if candidates['UP']['probability_pass'] else 'DOWN' if candidates['DOWN']['probability_pass'] else 'WAIT'
         probability=p if side=='UP' else 1-p
         price=up if side=='UP' else down
         price=price*(1+fee_rate*(1-price))
@@ -61,7 +72,7 @@ class QLearningAgent:
         q=self.table.setdefault(state,{'WAIT':0.,'UP':0.,'DOWN':0.})
         # Hard gates cannot be bypassed by exploration or Q-values.
         action=side if side!='WAIT' and score>.7 and ev>.05 and q[side]>=q['WAIT'] else 'WAIT'
-        return dict(action=action,ev=ev,fraction=fraction,state=state,q=q.copy())
+        return dict(action=action,candidate=side,candidates=candidates,ev=ev,fraction=fraction,state=state,q=q.copy())
     def update(self,state,side,reward):
         # Each settled candle is a terminal episode: no bootstrap from future data.
         values=self.table.setdefault(state,{'WAIT':0.,'UP':0.,'DOWN':0.})
@@ -87,7 +98,8 @@ def gan_laya_decision(agent, probability, up, down, audit, fee_rate=0.):
     d['q_permits']=candidate!='WAIT' and d['q'][candidate]>=d['q']['WAIT']
     mlp=audit.get('model_probability')
     validated=bool(audit.get('model_connected') and audit.get('approved') and
-                   audit['score']>.7 and mlp is not None and mlp>.7)
+                   audit['score']>.7 and mlp is not None and mlp>.7 and
+                   audit.get('side',candidate)==candidate)
     if not validated: d['action']='WAIT'
     d.update(profile='gan_laya',stake_usd=1.,fraction=0.,validated=validated,
              gan_probability=probability,laya_model_probability=mlp)

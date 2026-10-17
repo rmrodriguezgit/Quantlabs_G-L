@@ -27,3 +27,37 @@ class GanLayaTests(unittest.TestCase):
         self.assertIsNone(e.enter(300,350,100,d,1,.8,.21,None,'LAYA_APPROVED'))
         self.assertEqual(e.cash,1000)
 if __name__=='__main__':unittest.main()
+
+class DownDirectionTests(unittest.TestCase):
+    def test_down_signal_executes_one_dollar_and_resolves(self):
+        e=PaperTradingEngine()
+        audit=dict(side='DOWN',score=1,model_connected=True,approved=True,model_probability=.9)
+        d=gan_laya_decision(e.agent,.2,.71,.3,audit)
+        self.assertEqual(d['action'],'DOWN')
+        self.assertAlmostEqual(d['candidates']['DOWN']['probability'],.8)
+        self.assertGreater(d['candidates']['DOWN']['ev'],.05)
+        market=dict(condition_id='down-case',slug='s',fee_rate=0,quotes={'DOWN':dict(size=100,min_size=5)})
+        trade=e.enter(300,400,100,d,1,.71,.3,market,'LAYA_APPROVED')
+        self.assertEqual(trade.side,'DOWN');self.assertEqual(trade.stake,1)
+        e.resolve('down-case','DOWN')
+        self.assertEqual(trade.status,'WON');self.assertGreater(trade.pnl,0)
+
+    def test_failed_up_does_not_flip_to_down(self):
+        audit=dict(side='UP',score=1,model_connected=True,approved=True,model_probability=.9)
+        d=gan_laya_decision(QLearningAgent(),.8,.95,.05,audit)
+        self.assertEqual(d['action'],'WAIT')
+        self.assertGreater(d['candidates']['DOWN']['ev'],.05)
+        self.assertFalse(d['candidates']['DOWN']['probability_pass'])
+
+    def test_down_requires_own_approval_and_quote(self):
+        audit=dict(side='UP',score=1,model_connected=True,approved=True,model_probability=.9)
+        self.assertEqual(gan_laya_decision(QLearningAgent(),.2,.7,.3,audit)['action'],'WAIT')
+        audit['side']='DOWN'
+        self.assertEqual(gan_laya_decision(QLearningAgent(),.2,.7,0,audit)['action'],'WAIT')
+
+    def test_neutral_indicators_do_not_approve_down(self):
+        from backend.engine import LayaMLXValidator
+        validator=LayaMLXValidator();validator.model_name=None
+        audit=validator.validate([dict(open=100,close=100,volume=0,delta=0) for _ in range(60)],.2)
+        self.assertEqual(audit['side'],'DOWN');self.assertEqual(audit['score'],0)
+        self.assertFalse(audit['approved'])
