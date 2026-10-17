@@ -67,7 +67,7 @@ class LiveMarket:
         if not trades or not -3<=time.time()-float(trades[-1]['T'])/1000<=5:
             raise ValueError('Última operación BTC obsoleta o ausente')
         price=float(trades[-1]['p'])
-        candles=[dict(open=float(c[1]),close=float(c[4]),volume=float(c[5]),delta=2*float(c[9])-float(c[5])) for c in raw[:-1]]
+        candles=[dict(open=float(c[1]),high=float(c[2]),low=float(c[3]),close=float(c[4]),volume=float(c[5]),delta=2*float(c[9])-float(c[5])) for c in raw[:-1]]
         live=dict(open=float(current[1]),close=price,volume=float(current[5]),delta=2*float(current[9])-float(current[5]),timestamp=float(trades[-1]['T'])/1000)
         return candles,live,cycle
     async def quotes(self,cycle):

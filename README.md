@@ -1,6 +1,6 @@
 # Quantlabs G&L · LAYA
 
-**Versión actual: v1.2.0 — validación independiente de UP y DOWN**
+**Versión actual: v1.2.2 — pipeline UP/DOWN y contexto ATR/Fibonacci**
 
 Aplicación local de **paper trading** para BTC Up/Down de 5 minutos en Polymarket.
 Combina datos públicos de Binance, asks reales de Polymarket, una GAN experimental,
@@ -45,6 +45,42 @@ El perfil exploratorio ejercita el simulador sin exigir GAN/EV/LAYA favorables;
 no representa una estrategia validada. El perfil principal exige todos sus filtros.
 Ambos perfiles de $1 comparten el archivo histórico `live-exploratory.json`, pero
 cada operación conserva su etiqueta. No se reclasifican operaciones antiguas.
+
+## Novedades de la v1.2.2
+
+El pipeline muestra P(UP), P(DOWN) y las dos aprobaciones independientes de LAYA.
+El feed Binance conserva máximos/mínimos OHLC para calcular ATR(14) de Wilder
+sobre velas cerradas de 5m. ATR mide volatilidad, no dirección ni un intervalo
+probabilístico del precio futuro.
+
+Fibonacci usa los extremos de las últimas 50 velas cerradas, ordenados por índice,
+con niveles 0%, 23.6%, 38.2%, 50% (convencional), 61.8%, 78.6% y 100%. Muestra
+el siguiente nivel por encima para UP y por debajo para DOWN, con distancia en
+ATR. Si los extremos están en la misma vela o no hay rango, no inventa un tramo.
+Los anclajes pueden cambiar cuando cierra otra vela; no se usan pivotes futuros.
+Sin máximos/mínimos válidos, el contexto queda no disponible; no se aproxima ATR
+con apertura y cierre.
+
+Ambos indicadores están en **SHADOW descriptivo**: se guardan en los snapshots de
+auditoría, sin votos en el score técnico ni cambios en los prompts LAYA, GAN, Q,
+umbrales o entradas de $1. Hacen falta nuevas pruebas prospectivas antes de
+promoverlos a filtros. Suite: 60 pruebas backend y 8 del panel de mercado.
+
+## Novedades de la v1.2.1
+
+El panel de mercado binario muestra la ventana BTC 5m activa con fecha, horario,
+zona local y contador, pregunta/enlace al mercado correcto, apertura Binance,
+precio actual y diferencia. UP/DOWN muestran probabilidades GAN complementarias
+y asks por token en campos separados. La referencia oficial Chainlink no está
+disponible en este feed: no se presenta la apertura Binance como si lo fuera.
+
+El panel oculta datos obsoletos o del ciclo anterior durante una reconexión o cambio
+de ventana; las cuotas se comprueban por token. Una GAN no preparada/degradada no
+aparece como una estimación válida de 50%. La calculadora incluye tasas, EV y
+avisos de profundidad y mínimo real. Elegir lado o cambiar su importe no envía
+órdenes ni modifica el tamaño fijo de $1 del bot.
+
+Comprobar las 8 pruebas del panel: `npm --prefix frontend run test:market`.
 
 ## Novedades de la v1.2.0
 
@@ -233,3 +269,22 @@ Validación de la v1.2.0: **47 pruebas aprobadas y build TypeScript/Vite correct
 Referencias del proyecto: [LAYA MLX](https://github.com/rmrodriguezgit/laya-mlx),
 [Polymarket](https://docs.polymarket.com/),
 [WGAN-GP](https://arxiv.org/abs/1704.00028).
+
+### Prueba bayesiana en sombra (experimental)
+
+`backend/bayesian.py` permite reproducir un calibrador Beta-Binomial por cohorte,
+lado, banda GAN, confirmación técnica y aprobación LAYA. Lee SQLite en modo
+solo lectura y usa únicamente resoluciones oficiales conocidas antes de cada
+predicción. Conserva P(UP)+P(DOWN)=1; nunca multiplica confianza LAYA por GAN ni
+permite que Bayes anule su rechazo. No está conectado a las órdenes ni al dashboard.
+
+```sh
+.venv/bin/python -m backend.bayesian --db backend/data/live-research.sqlite3 --out ../analisis-bayesiano
+```
+
+Prueba inicial: 9 velas antiguas y 1 de v1.2.0, analizadas por separado. Brier
+original/bayesiano: 0.07573/0.20808 y 0.000144/0.25, respectivamente. La variante
+no mejoró y no se promovió. Ninguna señal de esas muestras cumplía todos los
+filtros LAYA; no hay evidencia de mejora del PnL. Se necesitan resultados futuros
+y más señales aprobadas antes de ajustar probabilidades operativas. Suite tras
+este experimento: 54 pruebas aprobadas.

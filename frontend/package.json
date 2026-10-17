@@ -1,10 +1,11 @@
 {
   "name": "laya-paper-terminal",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
+    "test:market": "node --experimental-strip-types --test tests/binaryMarket.test.ts",
     "dev": "vite --host 127.0.0.1"
   },
   "dependencies": {

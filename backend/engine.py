@@ -5,6 +5,7 @@ import random
 import json
 from pathlib import Path
 from dataclasses import dataclass, asdict, field
+from .indicators import market_context
 from .directional import technical_audits, POLICIES, POLICY_VERSION, signal_side
 
 
@@ -46,7 +47,10 @@ class LayaMLXValidator:
                          engine='LAYA MLX + directional audit' if model_probability is not None else 'technical baseline · LAYA MLX not connected')
         self.load_error=next((a['model_error'] for a in sides.values() if a['model_error']),None)
         selected='UP' if probability>.5 else 'DOWN'
-        return {**sides[selected],'sides':sides}
+        # Compute experimental context AFTER both MLX calls. It cannot change their
+        # prompts, scores or execution until a separate prospective comparison exists.
+        context=market_context(candles[:-1],float(candles[-1]['close']))
+        return {**sides[selected],'sides':sides,'market_context':context}
 
 
 class QLearningAgent:
