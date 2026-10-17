@@ -1,0 +1,17 @@
+.venv/
+frontend/node_modules/
+frontend/dist/
+backend/data/
+__pycache__/
+backend/data/huggingface/
+
+# Local credentials, OS files and generated artifacts
+.env
+.env.*
+!.env.example
+.DS_Store
+*.py[cod]
+*.log
+*.safetensors
+*.pt
+*.pth
