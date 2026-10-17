@@ -1,127 +1,235 @@
-# Quantlabs_G-L
+# Quantlabs G&L · LAYA
 
-**Quantlabs G&L · LAYA · v1.1.2**
+**Versión actual: v1.2.0 — validación independiente de UP y DOWN**
 
-Sistema local de paper trading con precios BTC y asks Polymarket en tiempo real, GAN experimental, auditor LAYA MLX y política Q tabular. No contiene claves privadas ni código para enviar órdenes reales.
+Aplicación local de **paper trading** para BTC Up/Down de 5 minutos en Polymarket.
+Combina datos públicos de Binance, asks reales de Polymarket, una GAN experimental,
+auditorías LAYA MLX y una política Q tabular. El perfil principal simula entradas de
+**$1 total, tasas incluidas**. No envía órdenes reales ni necesita una wallet.
 
-## Arranque
+## Inicio rápido
+
+Requisitos: Python 3.11+ compatible con las dependencias, Node.js 22+, npm e Internet.
+La ruta MLX habitual requiere macOS con Apple Silicon y Metal. PyTorch usa CPU si
+MPS no está disponible; esto no resuelve por sí solo una instalación MLX sin Metal.
+La compilación CPU de MLX utilizada durante el desarrollo es una instalación
+especial y no se instala automáticamente con estos scripts.
 
 ```sh
-./start-live.sh
+git clone https://github.com/rmrodriguezgit/Quantlabs_G-L.git
+cd Quantlabs_G-L
+./start-simulation.sh
 ```
 
-Abrir http://127.0.0.1:8000. `start-live.sh` instala dependencias, activa LIVE/PAPER, carga `aac6fef/laya-mlx`, compila React y arranca FastAPI. La primera carga descarga unos 850 MB de pesos en `backend/data/huggingface`. Requiere Python 3.11+ compatible con PyTorch/MLX, Node 22+, Internet y macOS Apple Silicon. PyTorch cae a CPU si MPS no está disponible. MLX oficial requiere Metal; esta sesión usa una compilación CPU de MLX cuando la GPU no es accesible. Si la carga falla, se muestra el error y se bloquean entradas, sin cambiar a baseline.
+Abrir **http://127.0.0.1:8000/**. El script activa `LAYA_MODE=live` y
+`LAYA_EXECUTION=gan_laya`, prepara `.venv`, instala dependencias, compila React y
+arranca FastAPI. Carga `aac6fef/laya-mlx`; la primera ejecución descarga unos
+850 MB de pesos a `backend/data/huggingface`. Si los modelos o los datos no están
+listos, muestra el motivo y bloquea entradas; no sustituye LAYA por una aprobación ficticia.
 
-Para demo sintética: `./start.sh`. Ctrl+C detiene el supervisor y backend. Hay hasta cinco reinicios ante caída. `PORT=8001 ./start-live.sh` cambia el puerto. La aplicación escucha solo en loopback. No ejecutar múltiples workers sobre el mismo JSON de cuenta.
+Ctrl+C detiene el supervisor y el backend. El supervisor limita los reintentos
+tras fallos; no instala un servicio de inicio al encender el ordenador.
+`PORT=8001 ./start-simulation.sh` cambia el puerto. Escucha solo en loopback.
+No ejecutar múltiples instancias sobre el mismo archivo de cuenta.
 
-## Datos y simulación
+### Perfiles disponibles
 
-- Descubrimiento del mercado exacto `btc-updown-5m-{epoch}` mediante Gamma. Se verifican slug, inicio y cierre, resultados Up/Down, estado y versión antes de operar. Adaptador actual para CTF v1; otra versión queda bloqueada.
-- BTC Binance: 200 velas cerradas 5m y vela actual. Precio tomado del último agregado de operaciones, con timestamp comprobado. Polling aproximado de un segundo; si la red tarda, la frecuencia disminuye. Se rechazan datos y libros obsoletos.
-- Asks de los tokens UP/DOWN desde CLOB `/books`, precio de compra y profundidad del mejor ask. No se usa el midpoint como fill ni se inventa la cuota complementaria.
-- Ventana de entrada inclusiva: 30 a 15 segundos antes del cierre. Una entrada por ciclo. Umbrales estrictos P(UP)>58% o <42%, concordancia técnica>70%, aprobación MLX>70%, EV neto>0.05 y política Q permite la acción.
-- Half-Kelly sobre precio efectivo con tasas; coste total máximo 5% del efectivo disponible. Fill limitado a tokens visibles en mejor ask y mínimo del libro. Se simula la tasa `tokens × rate × p × (1-p)` para mercados cuya `feeSchedule.exponent=1`; una estructura desconocida bloquea operaciones. El simulador no reproduce prioridad, latencia de fill ni reservas de terceros.
-- Liquidación únicamente con `closed=true` y un único token `winner=true` del mercado oficial CLOB. Una posición puede quedar abierta después del cierre hasta publicar el resultado; no se liquida por precio Binance ni por el reloj. Cuenta, posiciones, Q-table y logs sobreviven al reinicio.
-- Dashboard: señal, filtros PASS/WAIT, log de señales y ejecuciones, reloj, curva de equidad, métricas, calculadora bruta, historial, enlace al mercado y pausa de nuevas entradas. Las posiciones pendientes siguen resolviéndose al pausar.
+| Inicio | Perfil | Importe | Momento de entrada |
+|---|---|---|---|
+| `./start-simulation.sh` | **GAN + LAYA, principal** | $1 total | Ciclo activo, con más de 5 s restantes |
+| `./start-live.sh` | Estrategia estricta, por defecto sin `LAYA_EXECUTION` definido | Half-Kelly, máximo 5% | Entre 30 y 15 s antes del cierre, inclusive |
+| `LAYA_EXECUTION=exploratory ./start-live.sh` | Exploratorio, selecciona el menor ask | $1 total | Ciclo activo, con más de 5 s restantes |
+| `./start.sh` | Demo, por defecto sin variables LIVE heredadas | Half-Kelly | Datos y cuotas sintéticos |
 
-## Modelos y límites
+El perfil exploratorio ejercita el simulador sin exigir GAN/EV/LAYA favorables;
+no representa una estrategia validada. El perfil principal exige todos sus filtros.
+Ambos perfiles de $1 comparten el archivo histórico `live-exploratory.json`, pero
+cada operación conserva su etiqueta. No se reclasifican operaciones antiguas.
 
-La GAN genera 1,000 retornos. Se entrena solo con velas cerradas y aplica una aproximación de escalado temporal de sus shocks al horizonte restante y desplazamiento spot actual. La probabilidad resultante es experimental y no está calibrada fuera de muestra. No hay garantía de frecuencia de entradas ni de rentabilidad.
+## Novedades de la v1.2.0
 
-El mercado consultado usa **Chainlink TWAP de 60 segundos**. El modelo usa **spot Binance**, por lo que existe una diferencia de fuente y objetivo. Se indica en el dashboard. Para investigación se permiten fills de paper sujetos a filtros; los resultados no validan la idoneidad del modelo para operar dinero real.
+- Políticas UP/DOWN independientes y versionadas en `backend/directional.py`.
+- Dos inferencias LAYA por snapshot: cada lado recibe evidencia y reglas propias.
+- Confirmación obligatoria del precio actual y del momentum para evitar aprobar
+  una dirección apoyada solamente por indicadores rezagados.
+- Panel con los controles, probabilidades, EV y aprobación MLX de ambos lados.
+- Evidencia direccional persistida en las nuevas operaciones.
+- Nuevo espacio de estados Q para no reutilizar valores aprendidos con otra semántica del score.
+- Nueva cohorte prospectiva, con entradas, PnL y acierto desglosados por UP/DOWN.
+  Las cohortes anteriores permanecen en SQLite; el bankroll y el histórico se conservan.
 
-LAYA usa `laya_mlx.load` y `predict` con pregunta `choice` y resultados LAYA_APPROVED / LAYA_REJECTED. Se auditan RSI, EMA9/21 y delta del volumen taker de Binance (volumen base comprador menos vendedor); la concordancia técnica y aprobación MLX son métricas distintas. LAYA es un auditor de consistencia, no un predictor financiero entrenado para BTC.
+## Reglas del perfil principal: GAN + LAYA, $1
 
-Q-learning empieza sin entrenamiento previo: estado discretizado, recompensa terminal PnL/coste y actualización tabular. Una acción con Q negativo puede pasar a WAIT. No se fuerza exploración para generar operaciones. Los pesos GAN se reentrenan tras reinicio; no se guardan como checkpoint.
+### Validación por dirección
 
-Equity se calcula como efectivo + posiciones a coste; no es mark-to-market. Profit factor se muestra como — cuando aún no hay pérdidas. Drawdown se calcula sobre liquidaciones. Empates demo resuelven DOWN; la cuenta live usa exclusivamente los resultados oficiales y reglas del mercado. No hay WS Binance, yfinance, entrenamiento RLCD ni validación walk-forward.
+| Evidencia técnica | ENTRY UP | ENTRY DOWN |
+|---|---|---|
+| RSI | >50 | <50 |
+| Tendencia de medias | EMA9 > EMA21 | EMA9 < EMA21 |
+| Volumen firmado | Positivo | Negativo |
+| Precio BTC actual | Sobre EMA9 y EMA21 | Bajo EMA9 y EMA21 |
+| Momentum: precio actual frente al último cierre | Positivo | Negativo |
 
-## Desarrollo
+Se exige concordancia **>70%: al menos 4 de 5 controles**, y los controles de
+**precio y momentum son obligatorios**. Una igualdad no apoya ninguna dirección.
+Las dos políticas tienen umbrales numéricos inicialmente iguales; separarlas no
+implica inventar diferencias sin validación futura. Rechazar UP no autoriza DOWN.
+
+Para entrar también deben cumplirse:
+
+1. P(UP)>58% para UP, o P(UP)<42% para DOWN; P(DOWN)=1−P(UP).
+2. Aprobación LAYA del lado propuesto >70%, modelo conectado y confirmación técnica.
+3. EV neto >0.05 con el ask y las tasas del lado propuesto; política Q permite la acción.
+4. GAN entrenada con controles de media y dispersión válidos; datos y cuotas frescos.
+5. Motor activo, ciclo vigente con más de 5 s restantes y máximo una entrada por ciclo.
+6. Saldo y tamaño visible suficientes para el fill simulado.
+
+Cada entrada debita **exactamente $1, tasas incluidas**. No se aumenta el importe
+para alcanzar el mínimo real del mercado. Se permiten fracciones exclusivamente
+paper por debajo del mínimo, identificadas como **BAJO MÍNIMO REAL**. Esos fills
+no serían órdenes ejecutables en la plataforma.
+
+## Datos, ejecución simulada y liquidación
+
+- **BTC:** 200 velas cerradas de 5m y vela actual de Binance; precio del último
+  agregado de operaciones con timestamp comprobado. Polling aproximado de un
+  segundo, sujeto a latencia. No usa Binance WS ni yfinance.
+- **Mercado:** Gamma descubre `btc-updown-5m-{epoch}`. Se verifican identidad,
+  fechas, estado, resultados y versión. El adaptador actual admite CTF v1;
+  versiones o estructuras de tasas desconocidas bloquean entradas.
+- **Cuotas:** CLOB `/books`, asks y tamaño del mejor nivel de cada token.
+  No se usa el midpoint como fill ni se inventa la cuota complementaria.
+  Un lado sin vendedores se muestra como — y no puede recibir fills.
+- **Tasas:** para la estructura compatible, `tokens × rate × ask × (1−ask)`.
+  Se limita el fill a la liquidez visible. No se simulan prioridad, reservas de
+  terceros ni evolución del libro durante la latencia.
+- **Resolución:** exclusivamente mercado oficial CLOB con `closed=true` y un
+  único token `winner=true`. Una posición puede seguir abierta tras el cierre
+  hasta publicarse el resultado. Pausar entradas no detiene su resolución.
+
+El histórico muestra apertura BTC de referencia, cierre de la misma vela Binance,
+hora, diferencia de precio y ganador oficial UP/DOWN. El resolvedor recupera la
+vela exacta y verifica que esté cerrada. Mientras tanto muestra **En curso** o
+**Pendiente de dato**. Binance no decide el resultado oficial: el mercado consultado
+usa **Chainlink TWAP de 60 s**, una fuente y objetivo distintos del spot del modelo.
+
+La curva de equidad usa efectivo + posiciones abiertas a coste, sin mark-to-market.
+Drawdown se calcula sobre liquidaciones; profit factor aparece como — si aún no
+hay pérdidas. Los empates demo resuelven DOWN; live utiliza el resultado oficial.
+
+## Modelos y alcance
+
+### GAN activa
+
+Genera **1,000 escenarios** de retornos y aproxima el horizonte restante a partir
+de velas cerradas y desplazamiento spot actual. El generador residual se entrena
+con objetivo adversarial y penalizaciones de media, dispersión y cuantiles.
+El control de salud usa 4,096 muestras: sesgo normalizado absoluto <0.35 y
+desviación relativa dentro de (0.5,1.8). Bloquea degradación o colapso, pero no
+acredita precisión predictiva. La probabilidad puede alcanzar 0% o 100% y sigue
+siendo experimental, sin calibración financiera fuera de muestra.
+
+### LAYA MLX y Q-learning
+
+LAYA usa `laya_mlx.load` y `predict` con una pregunta `choice` por dirección,
+`LAYA_APPROVED`/`LAYA_REJECTED`. Un fallo de inferencia no reutiliza la aprobación
+del lado contrario. Su confianza es una medida de auditoría textual de consistencia,
+**no una probabilidad de ganar dinero**.
+
+La política Q tabular empieza sin entrenamiento financiero previo; actualiza con
+recompensa terminal PnL/coste. Puede mantener WAIT aunque otros filtros pasen.
+No fuerza exploración para generar operaciones. La GAN activa se vuelve a entrenar
+tras reinicio; el checkpoint offline descrito abajo no la sustituye.
+
+### Experimento condicional offline
+
+`backend/training/` implementa tres WGAN-GP condicionales, 12 variables causales,
+objetivo normalizado por volatilidad/horizonte y calibración logística separada.
+El experimento usó 43,200 velas de un minuto de 30 días, anteriores al día de las
+dos pérdidas estudiadas; partición temporal 60/20/20 con purgas de 20 minutos.
+
+| Modelo, segmento de prueba | Brier ↓ | Acierto direccional |
+|---|---:|---:|
+| GAN condicional calibrada | 0.1977 | 68.1% |
+| Referencia estadística de difusión | **0.1859** | **69.2%** |
+| Arquitectura GAN anterior reentrenada | 0.1888 | 68.9% |
+
+Prueba sobre 1,726 velas, con cinco momentos observados por vela; no son casos
+independientes ni win rate de una estrategia. Las etiquetas son Binance, sin libros
+de cuotas ni liquidaciones oficiales históricas. **El candidato no superó la
+referencia y no se promovió a ejecución.** Estos resultados no evalúan la nueva
+política direccional v1.2.0 ni prueban beneficio. Cualquier ajuste posterior necesita
+otro segmento futuro, porque este holdout ya fue observado.
+
+Reproducir sobre el caché local, no incluido en GitHub:
+
+```sh
+.venv/bin/python -m backend.training.run \
+  --data backend/data/training/btc-1m-1789603200-1792195200.json \
+  --out ../analisis-gan --steps 800
+```
+
+`download_minutes` en `backend/training/data.py` permite obtener el caché.
+Los checkpoints quedan en `backend/data/training/` y el resumen reproducible en
+`backend/training/latest_evaluation.json`. No hay validación walk-forward completa
+ni evidencia de rentabilidad; no se garantiza frecuencia de entrada ni ganancias.
+
+## Laboratorio prospectivo
+
+Cohorte actual: **`v1.2.0-directional-v1-anchor30to15-ev005-slippage001`**.
+
+SQLite registra snapshots incluidos WAIT, rechazos y errores: probabilidades,
+salud GAN, las dos auditorías, controles técnicos, precio de referencia, timestamps,
+cuotas, profundidad, tasas, decisión y bloqueos. No reconstruye señales antiguas.
+
+La comparación shadow fija **la misma primera señal válida entre 30 y 15 s antes
+del cierre** para GAN sola, GAN + indicadores y GAN + indicadores + LAYA.
+La señal queda congelada; no se reemplaza por otra posterior más favorable.
+La falta de ask del lado propuesto impide el fill, pero no elimina la señal del Brier.
+Se omite Q para aislar las diferencias entre variantes. Indicadores y LAYA usan
+la confirmación direccional; las operaciones shadow no modifican la cuenta.
+
+Un resolvedor obtiene resultados oficiales incluso sin entradas paper. El panel
+muestra Brier frente a la referencia 0.25, fiabilidad descriptiva, PnL neto, win rate,
+profit factor, drawdown, frecuencia y desglose UP/DOWN. El estrés +$0.01/token es
+hipotético y tiene su propio recuento de fills. Los bloqueos cuentan snapshots
+correlacionados. Estas métricas ancladas a 30–15 s **no equivalen al rendimiento de
+todas las entradas** del perfil principal, que puede evaluar durante el resto del ciclo.
+
+## Persistencia, API y desarrollo
+
+| Archivo local, excluido de GitHub | Contenido |
+|---|---|
+| `backend/data/live-exploratory.json` | Cuenta principal de $1, posiciones y Q-table |
+| `backend/data/live.json` | Cuenta de estrategia estricta |
+| `backend/data/demo.json` | Cuenta demo |
+| `backend/data/live-exploratory-events.jsonl` | Logs del perfil principal |
+| `backend/data/live-research.sqlite3` | Auditoría y cohortes prospectivas |
+| `backend/data/huggingface/` | Caché del modelo LAYA |
+
+Cuenta, evidencia, posiciones y Q-table persisten entre reinicios. La auditoría
+se conserva independientemente de un reinicio de cuenta paper. No se publican
+cuentas, bases, pesos ni entornos virtuales.
+
+| Endpoint | Uso |
+|---|---|
+| `GET /api/state` | Snapshot del motor |
+| `GET /api/health` | Salud y estado de modelos |
+| `POST /api/pause` | Alternar pausa de nuevas entradas |
+| `GET /api/research` | Evaluación prospectiva y resumen offline disponible |
+| `GET /api/research/signals.csv?limit=10000` | Exportar auditoría de la cohorte actual |
+| `WS /ws` | Snapshot cada segundo |
+
+CSV: máximo 100,000 filas por descarga; el panel solicita 10,000. El histórico
+completo permanece en SQLite local.
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
-cd frontend && npm run build
+npm --prefix frontend run build
 ```
 
-REST: GET `/api/state`, GET `/api/health`, POST `/api/pause`; WebSocket `/ws` transmite snapshot cada segundo. Logs: `backend/data/live-events.jsonl`. Cuenta: `backend/data/live.json`, separada de `demo.json`.
+Validación de la v1.2.0: **47 pruebas aprobadas y build TypeScript/Vite correcto**.
 
-Fuentes: [LAYA MLX](https://github.com/rmrodriguezgit/laya-mlx), [libro Polymarket](https://docs.polymarket.com/market-data/prices-order-books), [tasas](https://docs.polymarket.com/trading/fees).
-
-## Simulación exploratoria de $1
-
-`./start-simulation.sh` activa una cuenta separada en `backend/data/live-exploratory.json` y usa cuotas reales. Cada fill debita **exactamente $1 total, tasas incluidas**; nunca sube ese importe para alcanzar el mínimo de tokens. Permite fracciones exclusivamente paper por debajo de ese mínimo, marcadas como BAJO MÍNIMO REAL; no serían órdenes ejecutables en la plataforma. Selecciona el menor ask disponible, máximo una operación por ciclo, y espera si no hay liquidez/saldo o si faltan datos/modelos. No se exige la ventana 30–15s, EV positivo ni aprobación LAYA: se muestran los valores y el rechazo real, sin llamar aprobada a la señal. Su finalidad es ejercitar el simulador; no representa el rendimiento de la estrategia estricta. La cuenta estricta y sus reglas se conservan. No se inventan operaciones históricas ni resultados. Un resultado sin vendedores se muestra como — y no puede recibir fills.
-
-
-## Perfil actual: GAN + LAYA, $1 por entrada
-
-`start-simulation.sh` ahora activa `LAYA_EXECUTION=gan_laya`. La dirección procede exclusivamente de la GAN (>58% UP, <42% DOWN). La cuenta existente conserva sus operaciones exploratorias etiquetadas como tales; las nuevas filas GAN + LAYA guardan P(UP), aprobación MLX y concordancia técnica por separado. Se requieren modelos conectados, concordancia técnica >70%, aprobación MLX >70%, EV neto >0.05 y permiso de Q-policy. No se elige el token por ser más barato. El importe sigue siendo exactamente $1 total con tasas, una entrada por ciclo, permitiendo fracciones paper bajo mínimo real. En este perfil se evalúa durante el ciclo hasta 5 segundos antes del cierre, sin exigir la ventana estricta 30–15 segundos. La liquidación sigue dependiendo del resultado oficial.
-
-
-## Corrección 1.0.1: probabilidad estancada y motivos de WAIT
-
-Se reprodujo un colapso de dispersión con la GAN original de 80 pasos: dos de tres semillas generaron P(UP)=0 aun sin movimiento observado. El generador ahora aprende una transformación residual del ruido y añade penalizaciones de media, desviación y cuantiles al objetivo adversarial. Cada entrenamiento audita 4,096 escenarios; sesgo absoluto normalizado >=0.35 o desviación relativa fuera de (0.5,1.8) bloquea entradas. Estos controles detectan degradación de distribución y no demuestran precisión financiera. La probabilidad de inferencia sigue usando 1,000 escenarios y puede ser 0% o 100% cuando todos los escenarios coinciden legítimamente.
-
-El panel muestra aprobación MLX y concordancia técnica como métricas distintas, todos los filtros pendientes, última hora de actualización, edad del último trade BTC y diagnóstico de la GAN. El reloj avanza en el cliente aunque el servidor no responda, y una conexión WS abierta con datos obsoletos deja de aparecer como LIVE. Los umbrales y el importe de $1 no se han reducido.
-
-
-## Laboratorio prospectivo v1.1.0
-
-El motor registra cada snapshot, incluidos WAIT, rechazos y errores de datos, en `backend/data/live-research.sqlite3` (SQLite WAL). Guarda probabilidades, salud GAN, auditoría MLX, RSI/EMA/delta, referencia spot, timestamp del dato, asks y tamaño visible, tasas, decisión y bloqueos. No reconstruye señales antiguas ni mezcla el historial exploratorio con la nueva cohorte. La cuenta y los filtros de las órdenes de $1 no cambian.
-
-Para comparar GAN sola, GAN + indicadores y GAN + indicadores + LAYA, se fija **la misma primera señal válida entre 30 y 15 segundos antes del cierre**. Sin datos frescos, una cotización disponible o GAN saludable, la vela no entra en la muestra. La falta de ask de la dirección propuesta impide el fill shadow, pero no elimina la señal del cálculo Brier. La señal no se sustituye por otra posterior más favorable. Cada variante usa la misma señal y condición; se omite la política Q de esta comparación para aislar el aporte de indicadores y LAYA. Elegibilidad: umbral GAN >58%/<42%, EV neto >0.05 y, según la variante, concordancia técnica >70% y aprobación MLX >70%. Los fills shadow son fracciones paper de $1 con tasas y liquidez visible; se cuenta cuántos quedan debajo del mínimo real. No son órdenes ejecutadas.
-
-Un resolvedor independiente consulta el resultado oficial incluso en mercados sin operaciones de la cuenta y durante fallos del feed BTC. Sin un ganador oficial, la muestra sigue pendiente. La evaluación muestra PnL neto, profit factor, drawdown, win rate, frecuencia de entrada y un estrés hipotético +$0.01/token (con su propio número de fills). Este estrés no reconstruye el libro posterior ni demuestra fills reales. Brier compara P(UP) con el resultado oficial sobre una observación por vela; la referencia P=50% obtiene 0.25. El gráfico de fiabilidad es descriptivo: no se ha ajustado un calibrador ni realizado una prueba walk-forward con datos históricos.
-
-Las cifras empiezan vacías; se necesita acumular resultados nuevos para valorar el modelo. El recuento de bloqueos usa snapshots correlacionados, no casos independientes. La versión/cohorte evita mezclar protocolos distintos. La auditoría persiste entre reinicios y no se borra al reiniciar una cuenta paper. Los resultados siguen sujetos a la diferencia entre spot Binance y TWAP Chainlink.
-
-Endpoints: GET `/api/research`; GET `/api/research/signals.csv?limit=10000` (máximo 100,000 filas por descarga). El panel exporta las últimas 10,000 filas; el histórico completo queda en SQLite. Ni la base ni los CSV se publican en GitHub.
-
-
-La v1.1.1 muestra en el histórico la columna **BTC REF. (BINANCE)**: valor `reference` guardado en la posición, correspondiente a la apertura del ciclo Binance. No es el precio spot actual ni la referencia TWAP oficial de Chainlink. Si una posición no contiene esa referencia, se muestra —.
-
-
-La v1.1.2 añade cierre BTC histórico, hora de cierre y diferencia frente a la referencia Binance en cada operación. Un resolvedor independiente recupera la vela exacta por inicio y fin, verifica que esté cerrada y completa también operaciones antiguas. Mientras no cierre la ventana se muestra En curso; si el dato aún no llega, Pendiente de dato. El precio spot de cierre no determina ni modifica el resultado binario; se conserva el ganador oficial UP/DOWN de Polymarket, cuya fuente es Chainlink TWAP. Los datos nuevos persisten con la cuenta.
-
-### Experimento condicional (offline)
-
-`backend/training/` implementa un ensemble de tres WGAN-GP con contexto causal de
-12 variables, objetivo normalizado por volatilidad y horizonte restante, y
-calibración logística en un segmento separado. Descarga velas cerradas de un minuto
-con `download_minutes` en `data.py`. Reproducir sobre el caché local:
-
-```bash
-.venv/bin/python -m backend.training.run --data backend/data/training/btc-1m-1789603200-1792195200.json --out ../analisis-gan --steps 800
-```
-
-El checkpoint permanece ignorado en `backend/data/training/`. El resumen
-`backend/training/latest_evaluation.json` aparece en el laboratorio del dashboard.
-La partición temporal usa 60/20/20 con purga de 20 minutos. No utiliza las dos
-operaciones del 17 de octubre para entrenar. Resultado: el candidato no supera
-la referencia de difusión y **no se promueve**. No hay backtest de beneficio:
-faltan libros de cuotas y liquidaciones oficiales históricas. No modificar umbrales
-para acertar retrospectivamente dos pérdidas. Una nueva selección o ajuste requiere
-otra muestra futura; este holdout ya ha sido observado.
-
-### v1.2.0: validación independiente de UP y DOWN
-
-`backend/directional.py` define políticas versionadas por lado. UP exige RSI>50,
-EMA9>EMA21, volumen firmado positivo, precio sobre ambas EMA y último cambio
-positivo; DOWN evalúa sus desigualdades bajistas. Se requiere concordancia >70%
-(4 de 5), y precio + momentum son confirmaciones obligatorias. Ninguna igualdad
-cuenta como apoyo. Son filtros de coherencia experimentales, sin ventaja demostrada.
-
-LAYA recibe dos inferencias separadas, con lado, evidencia, reglas y probabilidad
-de ese lado. Un error en una inferencia no reutiliza la aprobación de la otra.
-La confianza textual de LAYA no equivale a probabilidad de ganar. Se mantiene
-P(lado)>58%, EV neto>0.05, LAYA>70%, $1 incluidas tasas, cuotas frescas y controles
-de liquidez/ciclo. Rechazar UP no autoriza DOWN. Las políticas tienen umbrales
-independientes, inicialmente iguales: cualquier asimetría numérica debe justificarse
-en validación temporal futura, con cuotas y resoluciones oficiales.
-
-El dashboard muestra los cinco checks de cada lado, sus dos aprobaciones MLX,
-probabilidades y EV. Las nuevas órdenes guardan evidencia direccional y versión.
-La Q-table usa un espacio de estados nuevo para no heredar valores aprendidos bajo
-otra semántica de score. El laboratorio inicia una cohorte nueva, conserva la
-anterior en SQLite y separa entradas, PnL y acierto de UP/DOWN. No cambia resultados
-históricos ni reinicia el bankroll. Las métricas solo cubren señales prospectivas
-ancladas a 30–15s; no equivalen al rendimiento de todas las entradas del motor.
+Referencias del proyecto: [LAYA MLX](https://github.com/rmrodriguezgit/laya-mlx),
+[Polymarket](https://docs.polymarket.com/),
+[WGAN-GP](https://arxiv.org/abs/1704.00028).
