@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from dataclasses import dataclass, asdict, field
 from .indicators import market_context
+from .simple_rules import MIN_EDGE, MIN_LAYA, MIN_REMAINING, MAX_REMAINING, VERSION as SIMPLE_VERSION
 from .directional import technical_audits, POLICIES, POLICY_VERSION, signal_side
 
 
@@ -16,10 +17,13 @@ class LayaMLXValidator:
         self.model_name = os.getenv("LAYA_MODEL")
         self.load_error = None
 
-    def validate(self, candles, probability):
+    def validate(self, candles, probability, mode="strict"):
+        if mode not in ("strict","edge"):raise ValueError("Unknown validation mode")
         sides=technical_audits(candles)
         for side,audit in sides.items():
             policy=POLICIES[side]
+            if mode=='edge':
+                audit['policy']={**audit['policy'],'min_probability':0.,'min_technical':0.,'min_mlx':MIN_LAYA,'min_ev':0.,'min_edge':MIN_EDGE,'technical_role':'context_only'}
             model_probability=None;error=None
             if self.model_name:
                 try:
@@ -30,18 +34,23 @@ class LayaMLXValidator:
                     result=self.model.predict(json.dumps({**audit,'gan_up_probability':probability,
                         'side_probability':probability if side=='UP' else 1-probability}),
                         {"audit":{"type":"choice","instructions":
-                            f"Audit only ENTRY_{side}. Require the supplied directional checks, "
-                            "technical_pass=true and current price and momentum confirmation. "
-                            "Reject neutral or conflicting evidence. Approval of the opposite side "
-                            "must never imply approval here. This is consistency, not profitability.",
+                            (f"Audit only ENTRY_{side}. Indicators are context, not mandatory unanimous votes. "
+                             "Veto a proposal if its evidence is contradictory or unusable. "
+                             "No approval of one side implies approval of the other. "
+                             "This is a consistency veto, not a financial probability."
+                             if mode=='edge' else
+                             f"Audit only ENTRY_{side}. Require the supplied directional checks, "
+                             "technical_pass=true and current price and momentum confirmation. "
+                             "Reject neutral or conflicting evidence. Approval of the opposite side "
+                             "must never imply approval here. This is consistency, not profitability."),
                             "criteria":["LAYA_APPROVED","LAYA_REJECTED"]}})
                     model_probability=float(result['answers']['audit']['probabilities']['LAYA_APPROVED'])
                     if not math.isfinite(model_probability) or not 0<=model_probability<=1:
                         raise ValueError('Invalid LAYA probability')
                 except Exception as exc:
                     error=str(exc);model_probability=None
-            approved=bool(audit['technical_pass'] and (model_probability>policy.min_mlx if model_probability is not None else not self.model_name))
-            audit.update(approved=approved,model_probability=model_probability,
+            approved=bool(model_probability is not None and model_probability>=MIN_LAYA) if mode=='edge' else bool(audit['technical_pass'] and (model_probability>policy.min_mlx if model_probability is not None else not self.model_name))
+            audit.update(validation_mode=mode,approved=approved,model_probability=model_probability,
                          model_connected=model_probability is not None,model_error=error,
                          status='LAYA_APPROVED' if approved and model_probability is not None else 'LAYA_REJECTED' if model_probability is not None else 'TECHNICAL_BASELINE',
                          engine='LAYA MLX + directional audit' if model_probability is not None else 'technical baseline · LAYA MLX not connected')
@@ -143,6 +152,8 @@ class Position:
     closing_source: str | None=None
     official_outcome: str | None=None
     directional_audit: dict=field(default_factory=dict)
+    entry_edge: float | None=None
+    rules_version: str | None=None
 
 
 class PaperTradingEngine:
@@ -157,6 +168,22 @@ class PaperTradingEngine:
             temp=self.path.with_suffix('.tmp'); temp.write_text(json.dumps(dict(cash=self.cash,trades=[asdict(x) for x in self.trades],equity=self.equity,q=self.agent.table,blocked_through_cycle=self.blocked_through_cycle))); temp.replace(self.path)
     def enter(self,cycle,now,reference,decision,score,up,down,market=None,validator_status='TECHNICAL_BASELINE'):
         if self.paused or cycle<=self.blocked_through_cycle or decision['action']=='WAIT' or any(t.cycle==cycle for t in self.trades): return
+        if decision.get('profile')=='edge_laya':
+            side=decision['action'];p=decision.get('gan_probability',.5)
+            mlp=decision.get('laya_model_probability');ask=up if side=='UP' else down
+            if not market or side not in ('UP','DOWN') or not math.isfinite(p) or not 0<=p<=1 or not 0<ask<1:return
+            rate=market['fee_rate']
+            if not math.isfinite(rate) or rate<0:return
+            cost=ask*(1+rate*(1-ask));prob=p if side=='UP' else 1-p
+            quote=market.get('quotes',{}).get(side,{})
+            if not (decision.get('policy_version')==SIMPLE_VERSION and decision.get('validated')
+                    and decision.get('confirmation_ticks',0)>=3 and decision.get('stable_seconds',0)>=2
+                    and decision.get('confirmed_cycle')==cycle and decision.get('confirmed_side')==side
+                    and MIN_REMAINING<=cycle+300-now<=MAX_REMAINING
+                    and market.get('slug')==f'btc-updown-5m-{cycle}'
+                    and -3<=now-market.get('timestamp',0)<=5 and -3<=now-quote.get('timestamp',0)<=5
+                    and mlp is not None and math.isfinite(mlp) and MIN_LAYA<=mlp<=1
+                    and validator_status=='LAYA_APPROVED' and prob-cost+1e-12>=MIN_EDGE):return
         if decision.get('profile')=='gan_laya':
             p=decision.get('gan_probability',.5)
             mlp=decision.get('laya_model_probability')
@@ -166,7 +193,7 @@ class PaperTradingEngine:
                     and decision['action']==expected and expected!='WAIT' and validator_status=='LAYA_APPROVED'
                     and decision['ev']>policy.min_ev and decision.get('directional_audit',{}).get('side')==expected
                     and decision.get('directional_audit',{}).get('technical_pass')): return
-        fixed=decision.get('stake_usd') if decision.get('profile') in ('exploratory','gan_laya') else None
+        fixed=decision.get('stake_usd') if decision.get('profile') in ('exploratory','gan_laya','edge_laya') else None
         if fixed is not None and (fixed!=1. or self.cash<fixed): return
         stake=fixed if fixed is not None else round(self.cash*decision['fraction'],2)
         if stake<.01: return
@@ -187,7 +214,7 @@ class PaperTradingEngine:
             fee=tokens*market['fee_rate']*price*(1-price)
             stake=fixed if fixed is not None else tokens*price+fee
         self.cash-=stake
-        self.trades.append(Position(len(self.trades)+1,cycle,side,price,stake,tokens,reference,decision['state'],score,now,condition_id=market['condition_id'] if market else '',market_slug=market['slug'] if market else '',fee=fee,validator_status=validator_status,profile=decision.get('profile','strategy'),entry_ev=decision['ev'],below_minimum=below_minimum,gan_probability=decision.get('gan_probability'),laya_model_probability=decision.get('laya_model_probability'),directional_audit=decision.get('directional_audit',{}))); self.save()
+        self.trades.append(Position(len(self.trades)+1,cycle,side,price,stake,tokens,reference,decision['state'],score,now,condition_id=market['condition_id'] if market else '',market_slug=market['slug'] if market else '',fee=fee,validator_status=validator_status,profile=decision.get('profile','strategy'),entry_ev=decision['ev'],below_minimum=below_minimum,gan_probability=decision.get('gan_probability'),laya_model_probability=decision.get('laya_model_probability'),directional_audit=decision.get('directional_audit',{}),entry_edge=decision.get('edge'),rules_version=decision.get('policy_version'))); self.save()
         return self.trades[-1]
 
     def record_close(self,cycle,price,closed_at,source='BINANCE'):

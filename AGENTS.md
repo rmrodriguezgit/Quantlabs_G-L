@@ -14,3 +14,8 @@ permanecen en el checkout original. Las pruebas de la rama usan datos aislados.
 No reemplazar la liquidación oficial ni las cuotas verificadas por simulaciones
 al fallar un feed. LAYA sigue siendo obligatorio en el perfil `gan_laya` y las
 entradas paper siguen siendo de $1, tasas incluidas.
+
+El propietario autorizó el perfil experimental `edge_laya` en esta rama. En él,
+LAYA debe estar conectado y puede vetar (confianza <35%); las excepciones bloquean,
+no autorizan entradas. Mantener cuenta y motor separados de main, $1 total y
+resolución oficial. Q es diagnóstico hasta una validación futura específica.

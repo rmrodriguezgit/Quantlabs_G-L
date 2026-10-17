@@ -22,6 +22,8 @@ export type Trade = {
     fee?: number;
     profile?: string;
     entry_ev?: number;
+    entry_edge?:number|null;
+    rules_version?:string|null;
     below_minimum?: boolean;
     gan_probability?: number | null;
     laya_model_probability?: number | null;
@@ -59,6 +61,10 @@ export type State = {
             ev: number;
             probability_pass: boolean;
             ev_pass: boolean;
+            edge?:number|null;
+            laya_probability?:number|null;
+            laya_pass?:boolean;
+            eligible?:boolean;
         }>;
     };
     account: {

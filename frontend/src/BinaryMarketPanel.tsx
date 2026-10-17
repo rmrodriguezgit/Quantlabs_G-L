@@ -30,7 +30,7 @@ export function BinaryMarketPanel({snapshot:s,now,connected}:{snapshot:BinarySna
    <div><small>EV neto estimado · {side}</small><b>{ev===null?'—':`${(ev*100).toFixed(1)}%`}</b></div>
    {s.mode!=='demo'&&result&&!result.depthEnough&&<p className="red">Tamaño visible insuficiente para simular este importe al mejor ask.</p>}
    {result&&book&&result.tokens<book.min_size&&<p className="model-note">BAJO MÍNIMO REAL · Fracción permitida solo en paper trading.</p>}
-   <small>Esta calculadora no envía órdenes ni cambia el tamaño del bot: las entradas del perfil GAN + LAYA siguen siendo de $1.</small>
+   <small>Esta calculadora no envía órdenes ni cambia el tamaño del bot: las entradas de los perfiles GAN + LAYA y Edge + LAYA siguen siendo de $1.</small>
   </div>
  </section>
 }

@@ -27,14 +27,14 @@ export function TradeHistory({ s, uiNow, filter, setFilter }: {
     </thead>
     <tbody>{a.trades.filter(t => filter === 'ALL' || t.status === filter).map(t => <tr key={t.id}>
         <td>{new Date(t.timestamp * 1000).toLocaleString()}</td>
-        <td className={t.side === 'UP' ? 'green' : 'red'}>{t.side}<small className="trade-profile">{t.profile === 'gan_laya' ? 'GAN + LAYA' : t.profile === 'exploratory' ? 'EXPLORATORIA' : 'ESTRATEGIA'}{t.below_minimum ? ' · BAJO MÍNIMO REAL' : ''}</small>
+        <td className={t.side === 'UP' ? 'green' : 'red'}>{t.side}<small className="trade-profile">{t.profile === 'edge_laya' ? 'EDGE + LAYA EXP.' : t.profile === 'gan_laya' ? 'GAN + LAYA' : t.profile === 'exploratory' ? 'EXPLORATORIA' : 'ESTRATEGIA'}{t.rules_version&&` · ${t.rules_version}`}{t.below_minimum ? ' · BAJO MÍNIMO REAL' : ''}</small>
         </td>
         <td title="Apertura BTC de Binance guardada para este ciclo; no es el TWAP oficial de Chainlink">{t.reference != null && Number.isFinite(t.reference) ? money(t.reference) : '—'}</td>
         <td title="Cierre histórico de la vela Binance de esta operación; el resultado oficial usa Chainlink TWAP">{t.closing_price != null ? money(t.closing_price) : uiNow < t.cycle + 300 ? 'En curso' : 'Pendiente de dato'}{t.closing_time != null && <small className="trade-profile">{new Date(t.closing_time * 1000).toLocaleTimeString()} · {t.closing_source}</small>}</td>
         <td className={t.closing_price != null && t.reference != null ? (t.closing_price >= t.reference ? 'green' : 'red') : ''}>{t.closing_price != null && t.reference != null ? `${t.closing_price >= t.reference ? '+' : ''}${money(t.closing_price - t.reference)}` : '—'}</td>
         <td>{money(t.price)}</td>
         <td title={`Tasas: ${money(t.fee ?? 0)}`}>{money(t.stake)}</td>
-        <td>{t.gan_probability != null && <small className="trade-profile">GAN UP {(t.gan_probability * 100).toFixed(1)}% · MLX {((t.laya_model_probability ?? 0) * 100).toFixed(1)}%</small>}{(t.laya_score * 100).toFixed(0)}% técnico / {t.validator_status === 'LAYA_APPROVED' ? 'MLX APROBADO' : t.validator_status === 'LAYA_REJECTED' ? 'MLX RECHAZADO' : 'BASELINE'}</td>
+        <td>{t.gan_probability != null && <small className="trade-profile">GAN UP {(t.gan_probability * 100).toFixed(1)}% · MLX {((t.laya_model_probability ?? 0) * 100).toFixed(1)}%</small>}{(t.laya_score * 100).toFixed(0)}% técnico / {t.validator_status === 'LAYA_APPROVED' ? (t.profile==='edge_laya'?'MLX SIN VETO':'MLX APROBADO') : t.validator_status === 'LAYA_REJECTED' ? 'MLX RECHAZADO' : 'BASELINE'}</td>
         <td>{t.status === 'OPEN' ? 'ABIERTA' : t.status === 'WON' ? 'GANÓ' : 'PERDIÓ'}{t.official_outcome && <small className="trade-profile">OFICIAL: {t.official_outcome}</small>}</td>
         <td className={t.pnl >= 0 ? 'green' : 'red'}>{money(t.pnl)}</td>
         </tr>)}</tbody>

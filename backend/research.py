@@ -3,6 +3,8 @@ import csv
 import io
 import json
 import math
+import os
+from .simple_rules import edge_decision
 import sqlite3
 import time
 from pathlib import Path
@@ -17,6 +19,10 @@ def finite_payload(value):
 VERSION='1.2.0'
 COHORT='v1.2.0-directional-v1-anchor30to15-ev005-slippage001'
 VARIANTS=[('gan','GAN sola'),('technical','GAN + indicadores'),('laya','GAN + indicadores + LAYA')]
+if os.getenv('LAYA_EXECUTION')=='edge_laya':
+    VERSION='1.3.0-rc.1'
+    COHORT='v1.3.0-rc.1-edge-laya-v1-anchor30to15'
+    VARIANTS=[('edge_laya','Edge + veto LAYA (shadow sin confirmación temporal)')]
 
 
 class ResearchStore:
@@ -88,9 +94,13 @@ class ResearchStore:
 
     @staticmethod
     def payoff(payload,p,winner,slippage=0.):
-        side='UP' if p>.58 else 'DOWN' if p<.42 else None
+        odds=payload['odds']
+        if payload.get('profile')=='edge_laya':
+            d=edge_decision(p,odds.get('up',0),odds.get('down',0),payload.get('validator',{}),odds.get('fee_rate',0))
+            side=d['action'] if d['action']!='WAIT' else None
+        else:side='UP' if p>.58 else 'DOWN' if p<.42 else None
         if not side:return None
-        odds=payload['odds'];raw=odds[side.lower()]
+        raw=odds[side.lower()]
         if not 0<raw<1:return None
         price=raw+slippage
         if not 0<price<1:return None
@@ -99,7 +109,7 @@ class ResearchStore:
         probability=p if side=='UP' else 1-p
         # Entry eligibility uses only the contemporaneous raw ask, not future stress pricing.
         entry_cost=raw+fee_rate*raw*(1-raw)
-        if probability/entry_cost-1<=.05:return None
+        if payload.get('profile')!='edge_laya' and probability/entry_cost-1<=.05:return None
         quote=odds.get('quotes',{}).get(side,{})
         tokens=1/cost
         # No unlimited size assumptions. Fixed-dollar fractional paper fills only.
@@ -153,7 +163,7 @@ class ResearchStore:
         result=dict(cohort=COHORT,version=VERSION,observations=counts['n'],fresh_observations=counts['fresh'] or 0,since=counts['since'],
             samples=len(rows),resolved=len(resolved),pending=len(rows)-len(resolved),brier=brier,brier_reference=.25,
             variants=variants,calibration=bins,blockers=sorted([dict(reason=k,count=v) for k,v in blockers.items()],key=lambda x:-x['count']),
-            protocol='Misma señal por ciclo, primera lectura válida entre 30s y 15s del cierre; tamaño paper $1; EV>0.05; sin filtro Q. No altera órdenes.',
+            protocol=('Perfil experimental: señal anclada 30–15s, edge neto ≥0.04 y veto LAYA ≥0.35; sin confirmación de 3 ticks. No equivale a las entradas de la cuenta.' if os.getenv('LAYA_EXECUTION')=='edge_laya' else 'Misma señal por ciclo, primera lectura válida entre 30s y 15s del cierre; tamaño paper $1; EV>0.05; sin filtro Q. No altera órdenes.'),
             stress_note='Estrés hipotético: +$0.01 por token, más tasas. No reconstruye latencia ni profundidad posterior.',
             evidence='Recopilación prospectiva; todavía no demuestra ventaja ni probabilidades calibradas.' if len(resolved)<200 else 'Muestra prospectiva descriptiva; contrastar incertidumbre y periodos posteriores antes de ajustar reglas.')
         self._cached=result;self._cached_at=time.monotonic()

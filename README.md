@@ -1,11 +1,34 @@
 # Quantlabs G&L · LAYA
 
-**Versión de esta rama: v1.2.3-rc.1 — simplificación estructural, pendiente de fusión**
+**Versión de esta rama: v1.3.0-rc.1 — reglas experimentales Edge + veto LAYA, sin fusión**
 
 Aplicación local de **paper trading** para BTC Up/Down de 5 minutos en Polymarket.
 Combina datos públicos de Binance, asks reales de Polymarket, una GAN experimental,
 auditorías LAYA MLX y una política Q tabular. El perfil principal simula entradas de
 **$1 total, tasas incluidas**. No envía órdenes reales ni necesita una wallet.
+
+## Perfil experimental de esta rama: Edge + veto LAYA
+
+```sh
+./start-candidate.sh
+# Abrir http://127.0.0.1:8002/
+```
+
+Activa `LAYA_EXECUTION=edge_laya` con motor/cuenta propios: $1,000 iniciales paper,
+$1 total por entrada y máximo una por ciclo. Elige el mayor edge neto de UP/DOWN
+(P(lado) − ask con tasas ≥0.04), exige LAYA conectado sin veto (≥35%) y tres lecturas
+válidas de la misma dirección durante ≥2s, entre 60 y 280s desde apertura.
+No exige P(GAN)>58%, 4/5 indicadores ni el veto de Q del perfil anterior. Q es
+solo diagnóstico; no se ha entrenado/validado para decidir en este experimento.
+Datos frescos, liquidez real, salud GAN y resolución oficial siguen siendo obligatorios.
+
+La cuenta `backend/data/live-edge-laya.json` y la auditoría de esta copia son
+independientes de main. El puerto 8002 ahora sirve el backend de esta rama y su
+frontend; no es un simple proxy del motor 8000. No lanzar dos procesos en 8002.
+[Reglas, comparación y límites del replay](docs/simple-rules.md).
+La prueba histórica proxy generó más entradas, pero PnL negativo (−$1.83 en 17
+resueltas); no prueba que este perfil sea rentable. LAYA usa un prompt de veto
+nuevo que necesita observación prospectiva.
 
 ## Rama experimental de simplificación
 
@@ -13,7 +36,8 @@ Rama: **`refactor/simplify-pipeline`**. Parte de v1.2.2 y no se ha fusionado con
 `main`. La instalación que opera en el puerto 8000 conserva su código y cuenta.
 Ver [comparación y validación](docs/simplification-review.md). La revisión de [Quantlabs-LY-KY-Q](https://github.com/rmrodriguezgit/Quantlabs-LY-KY-Q)
 motivó separar responsabilidades del frontend; no se sustituyen nuestros modelos
-por los del otro proyecto ni se modifican reglas para obtener más entradas.
+por los del otro proyecto. El refactor inicial mantuvo las reglas; v1.3.0-rc.1
+añade el perfil experimental de reglas descrito arriba.
 
 - `main.tsx`: solo arranca React; `App.tsx`: compone el dashboard.
 - `types.ts`, `format.ts`, `Chart.tsx`: contratos y utilidades compartidas.
@@ -69,7 +93,8 @@ No ejecutar múltiples instancias sobre el mismo archivo de cuenta.
 
 | Inicio | Perfil | Importe | Momento de entrada |
 |---|---|---|---|
-| `./start-simulation.sh` | **GAN + LAYA, principal** | $1 total | Ciclo activo, con más de 5 s restantes |
+| `./start-candidate.sh` | **Edge + veto LAYA, experimental de esta rama** | $1 total | 60–280s desde apertura |
+| `./start-simulation.sh` | **GAN + LAYA, estricto conservado** | $1 total | Ciclo activo, con más de 5 s restantes |
 | `./start-live.sh` | Estrategia estricta, por defecto sin `LAYA_EXECUTION` definido | Half-Kelly, máximo 5% | Entre 30 y 15 s antes del cierre, inclusive |
 | `LAYA_EXECUTION=exploratory ./start-live.sh` | Exploratorio, selecciona el menor ask | $1 total | Ciclo activo, con más de 5 s restantes |
 | `./start.sh` | Demo, por defecto sin variables LIVE heredadas | Half-Kelly | Datos y cuotas sintéticos |
@@ -321,3 +346,12 @@ no mejoró y no se promovió. Ninguna señal de esas muestras cumplía todos los
 filtros LAYA; no hay evidencia de mejora del PnL. Se necesitan resultados futuros
 y más señales aprobadas antes de ajustar probabilidades operativas. Suite tras
 este experimento: 54 pruebas aprobadas.
+
+### Identificación de rama en el dashboard
+
+Debajo de la versión se muestra la rama Git de la compilación. Vite consulta el
+checkout correcto, incluidos worktrees, durante el build. Cambiar de rama requiere
+recompilar para actualizar la etiqueta. En HEAD separado se muestra `detached@SHA`;
+sin Git, `sin-git`. Para builds desde archivos exportados se puede definir
+`LAYA_BUILD_BRANCH=nombre npm --prefix frontend run build`. No modifica el motor
+ni fusiona la rama experimental.

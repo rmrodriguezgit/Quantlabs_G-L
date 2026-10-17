@@ -15,14 +15,15 @@ from fastapi.responses import Response
 from .research import ResearchStore
 from .engine import PaperTradingEngine, LayaMLXValidator, exploratory_decision, gan_laya_decision
 from .market import LiveMarket
+from .simple_rules import edge_decision, SignalConfirmation, execution_gates as simple_gates
 
 log=logging.getLogger('laya')
 MODE=os.getenv('LAYA_MODE','demo')
 if MODE not in ('demo','live'): raise ValueError('LAYA_MODE must be demo or live')
 PROFILE=os.getenv('LAYA_EXECUTION','strategy')
-if PROFILE not in ('strategy','exploratory','gan_laya'): raise ValueError('Unknown execution profile')
-if PROFILE in ('exploratory','gan_laya') and MODE!='live': raise ValueError('Exploratory fills require live market data')
-ACCOUNT_KEY=f'{MODE}-exploratory' if PROFILE in ('exploratory','gan_laya') else MODE
+if PROFILE not in ('strategy','exploratory','gan_laya','edge_laya'): raise ValueError('Unknown execution profile')
+if PROFILE in ('exploratory','gan_laya','edge_laya') and MODE!='live': raise ValueError('Exploratory fills require live market data')
+ACCOUNT_KEY=f'{MODE}-edge-laya' if PROFILE=='edge_laya' else f'{MODE}-exploratory' if PROFILE in ('exploratory','gan_laya') else MODE
 DATA=Path(__file__).parent/'data'
 engine=PaperTradingEngine(DATA/f'{ACCOUNT_KEY}.json')
 research=ResearchStore(DATA/f'{MODE}-research.sqlite3')
@@ -96,6 +97,7 @@ async def loop():
         for _ in range(200):
             close=price*math.exp(rng.gauss(0,.001));candles.append(dict(open=price,close=close,volume=rng.uniform(10,100)));price=close
     # Loading runs in a separate thread so the dashboard remains available.
+    confirmation=SignalConfirmation()
     model_task=asyncio.create_task(load_models())
     try:
         async with httpx.AsyncClient(timeout=8,headers={'User-Agent':'LAYA-Paper-Research/1.0'}) as client:
@@ -129,13 +131,22 @@ async def loop():
                         # On load failure do not retry a large checkpoint every second.
                         if validator.load_error and validator.model is None:
                             audit['model_error']=validator.load_error
-                        else: audit=await asyncio.to_thread(validator.validate,candles+[current],probability)
+                        else: audit=await asyncio.to_thread(validator.validate,candles+[current],probability,'edge' if PROFILE=='edge_laya' else 'strict')
                     now=time.time();remaining=max(0,cycle+300-now)
                     gan_quality=gan.quality.copy() if gan else {'healthy':False,'reason':'GAN no disponible'}
-                    decision=engine.agent.decide(probability,market['up'],market['down'],audit['score'],market.get('fee_rate',0)) if market else dict(action='WAIT',ev=0,fraction=0)
+                    decision=engine.agent.decide(probability,market['up'],market['down'],audit['score'],market.get('fee_rate',0)) if market and PROFILE!='edge_laya' else dict(action='WAIT',ev=0,fraction=0)
                     models=bool(gan and gan.ready and audit['model_connected']) if MODE=='live' else model_task.done()
                     already=cycle<=engine.blocked_through_cycle or any(t.cycle==cycle for t in engine.trades)
-                    if PROFILE=='exploratory':
+                    if PROFILE=='edge_laya':
+                        decision=edge_decision(probability,market['up'] if market else 0,market['down'] if market else 0,audit,market.get('fee_rate',0) if market else 0,engine.agent.table)
+                        chosen=decision['candidate']
+                        audit={**audit,**audit.get('sides',{}).get(chosen,{})}
+                        models=bool(gan and gan.ready and audit.get('model_connected'))
+                        gates=simple_gates(now,cycle,market,current.get('timestamp'),models,gan_quality.get('healthy'),engine.paused,already,decision)
+                        stable=confirmation.observe(cycle,chosen,now,all(g['ok'] for g in gates))
+                        decision.update(confirmation_ticks=confirmation.count,stable_seconds=now-confirmation.first if confirmation.first is not None else 0,confirmed_cycle=cycle,confirmed_side=chosen)
+                        gates.append(dict(name='Misma dirección válida durante 3 lecturas (≥2s)',ok=stable))
+                    elif PROFILE=='exploratory':
                         if market: decision=exploratory_decision(probability,market['up'],market['down'],market.get('fee_rate',0))
                         gates=exploratory_gates(now,cycle,market,models,engine.paused,already)
                     elif PROFILE=='gan_laya':
@@ -152,7 +163,7 @@ async def loop():
                         ])
                     else:
                         gates=execution_gates(now,cycle,probability,audit,decision,market,models,engine.paused,already)
-                    if MODE=='live':
+                    if MODE=='live' and PROFILE!='edge_laya':
                         gates.insert(2,dict(name='GAN con dispersión y media válidas',ok=bool(gan and gan_quality.get('healthy'))))
                     blockers=[g['name'] for g in gates if not g['ok']]
                     # Inference can cross a boundary; recheck wall clock before any fill.
@@ -175,6 +186,7 @@ async def loop():
                     # Expected feed interruptions must not flood the server with tracebacks.
                     if time.time()-last_log>=15:
                         event('Datos no disponibles: '+str(exc),'WARNING');last_log=time.time()
+                    confirmation.observe(cycle,None,time.time(),False)
                     state={**state,'timestamp':time.time(),'cycle':cycle,'remaining':max(0,cycle+300-time.time()),'error':str(exc),'reason':'Datos no disponibles: ejecución bloqueada','decision':{'action':'WAIT','ev':0,'fraction':0},'odds':{**state['odds'],'available':False},'blockers':['Datos no disponibles: '+str(exc)],'gates':[],'account':engine.snapshot(),'events':events.copy()}
                 try:
                     research.record(state)
