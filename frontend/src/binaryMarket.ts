@@ -1,5 +1,5 @@
 export type MarketOdds={up:number;down:number;source:string;available:boolean;slug?:string;question?:string;timestamp?:number;fee_rate?:number;quotes?:Partial<Record<'UP'|'DOWN',{timestamp:number;size:number;min_size:number}>>};
-export type BinarySnapshot={mode:string;cycle:number;price:number;reference:number;probability:number;timestamp:number;data_updated_at?:number|null;error:string|null;model_ready:boolean;gan_quality?:{healthy:boolean};odds:MarketOdds};
+export type BinarySnapshot={profile?:string;mode:string;cycle:number;price:number;reference:number;probability:number;timestamp:number;data_updated_at?:number|null;error:string|null;model_ready:boolean;gan_quality?:{healthy:boolean};odds:MarketOdds};
 const fresh=(timestamp:number|undefined|null,now:number)=>timestamp!=null&&Number.isFinite(timestamp)&&now-timestamp>=-3&&now-timestamp<=5;
 export function marketView(s:BinarySnapshot,now:number,connected:boolean){
  const cycle=Math.floor(now/300)*300;

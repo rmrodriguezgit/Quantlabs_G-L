@@ -1,3 +1,4 @@
+import {QuantRiskPanel} from './QuantRiskPanel';
 import {SimpleRulesPanel} from './SimpleRulesPanel';
 import {buildBranch} from './buildInfo';
 import { Chart } from './Chart';
@@ -26,7 +27,8 @@ export default function App() {
         <p>Conectando con el motor local…</p>
         <small>Inicia ./start.sh para conectar el backend.</small>
         </div>;
-    const simple=s.profile==='edge_laya';
+    const quant=s.profile==='quant_laya';
+    const simple=quant||s.profile==='edge_laya';
     const a = s.account;
     const dataAge = Math.max(0, uiNow - (s.data_updated_at ?? s.timestamp));
     const stale = !connected || !s.data_updated_at || dataAge > 8 || !!s.error;
@@ -56,22 +58,22 @@ export default function App() {
     </div>
     </div>
     <div className="status">
-    <i className={connected && !stale ? 'online' : 'stale'}/>{!connected ? 'RECONECTANDO' : stale ? 'DATOS NO DISPONIBLES' : `LIVE · ${new Date(s.timestamp * 1000).toLocaleTimeString()}`}<b>{simple ? 'EDGE + LAYA EXP. / PAPER $1' : s.profile === 'gan_laya' ? 'GAN + LAYA / PAPER $1' : s.profile === 'exploratory' ? 'SIMULACIÓN / REAL QUOTES' : `${s.mode.toUpperCase()} / PAPER`}</b>
+    <i className={connected && !stale ? 'online' : 'stale'}/>{!connected ? 'RECONECTANDO' : stale ? 'DATOS NO DISPONIBLES' : `LIVE · ${new Date(s.timestamp * 1000).toLocaleTimeString()}`}<b>{quant ? 'QUANT + LAYA / PAPER $1' : simple ? 'EDGE + LAYA EXP. / PAPER $1' : s.profile === 'gan_laya' ? 'GAN + LAYA / PAPER $1' : s.profile === 'exploratory' ? 'SIMULACIÓN / REAL QUOTES' : `${s.mode.toUpperCase()} / PAPER`}</b>
     </div>
     </header>
     <div className="heading">
     <div>
     <div className="eyebrow">AUTONOMOUS RESEARCH / BTC–USD</div>
-    <h1>Una señal. Cuatro filtros.</h1>
+    <h1>{quant?'Riesgo antes de cada entrada.':'Una señal. Cuatro filtros.'}</h1>
     <p>Predicción, validación y ejecución simulada en ciclos de 5 minutos.</p>
     </div>
     <button onClick={async () => { const r = await fetch('/api/pause', { method: 'POST' }); const d = await r.json(); setS({ ...s, account: { ...a, paused: d.paused } }); }}>{a.paused ? <Play size={15}/> : <Pause size={15}/>} {a.paused ? 'Reanudar motor' : 'Pausar entradas'}</button>
     </div>
     <div className="notice">
     <Radio size={15}/>
-    <span>{s.mode === 'demo' ? 'ENTORNO DEMO · Precios y cuotas sintéticos. Rendimiento sin valor predictivo.' : simple ? 'EXPERIMENTO · Edge neto ≥4 puntos · LAYA veto ≥35% · 3 lecturas · $1 · cuenta independiente.' : s.profile === 'gan_laya' ? 'GAN + LAYA · Cuotas reales · $1 por ciclo · P(GAN)>58% UP / <42% DOWN · LAYA y concordancia >70%.' : s.profile === 'exploratory' ? 'SIMULACIÓN EXPLORATORIA · Cuotas reales · $1 por ciclo · Sin exigir ventana, EV ni aprobación LAYA.' : 'PAPER LIVE · BTC Binance + asks Polymarket. Entradas automáticas sujetas a todos los filtros.'}</span>
+    <span>{s.mode === 'demo' ? 'ENTORNO DEMO · Precios y cuotas sintéticos. Rendimiento sin valor predictivo.' : quant ? 'QUANT EXPERIMENTAL · EV neto >0 · R/R ≥2 · ATR · LAYA · riesgo máximo $1 · cuenta independiente.' : simple ? 'EXPERIMENTO · Edge neto ≥4 puntos · LAYA veto ≥35% · 3 lecturas · $1 · cuenta independiente.' : s.profile === 'gan_laya' ? 'GAN + LAYA · Cuotas reales · $1 por ciclo · P(GAN)>58% UP / <42% DOWN · LAYA y concordancia >70%.' : s.profile === 'exploratory' ? 'SIMULACIÓN EXPLORATORIA · Cuotas reales · $1 por ciclo · Sin exigir ventana, EV ni aprobación LAYA.' : 'PAPER LIVE · BTC Binance + asks Polymarket. Entradas automáticas sujetas a todos los filtros.'}</span>
     <span className="right">SIN FONDOS REALES</span>
-    </div>{(s.error || s.model_error) && <div className="error">{s.error || s.model_error}</div>}<section className="metrics">{[[simple ? 'Bankroll experimental Edge + LAYA' : s.profile === 'gan_laya' ? 'Bankroll paper GAN + LAYA' : s.profile === 'exploratory' ? 'Bankroll exploratorio' : 'Bankroll', money(a.balance), 'Capital contable · coste de posiciones'], ['PnL realizado', money(a.pnl), `${(a.pnl / 10).toFixed(2)}% desde el inicio`], ['Win rate', `${(a.win_rate * 100).toFixed(1)}%`, `${a.total_trades} liquidadas · ${a.trades.filter(t => t.status === 'OPEN').length} abiertas`], ['Profit factor', a.profit_factor?.toFixed(2) ?? '—', `Drawdown máx. ${(a.max_drawdown * 100).toFixed(2)}%`]].map(([label, value, note]) => <article key={label}>
+    </div>{(s.error || s.model_error) && <div className="error">{s.error || s.model_error}</div>}<section className="metrics">{[[quant ? 'Bankroll paper Quant + LAYA' : simple ? 'Bankroll experimental Edge + LAYA' : s.profile === 'gan_laya' ? 'Bankroll paper GAN + LAYA' : s.profile === 'exploratory' ? 'Bankroll exploratorio' : 'Bankroll', money(a.balance), 'Capital contable · coste de posiciones'], ['PnL realizado', money(a.pnl), `${(a.pnl / 10).toFixed(2)}% desde el inicio`], ['Win rate', `${(a.win_rate * 100).toFixed(1)}%`, `${a.total_trades} liquidadas · ${a.trades.filter(t => t.status === 'OPEN').length} abiertas`], ['Profit factor', a.profit_factor?.toFixed(2) ?? '—', `Drawdown máx. ${(a.max_drawdown * 100).toFixed(2)}%`]].map(([label, value, note]) => <article key={label}>
         <label>{label}</label>
         <strong>{value}</strong>
         <small>{note}</small>
@@ -121,8 +123,8 @@ export default function App() {
     </section>
     <BinaryMarketPanel snapshot={s} now={uiNow} connected={connected}/>
     </div>
-    <IndicatorContext context={s.validator.market_context} stale={stale || Math.floor(uiNow / 300) * 300 !== s.cycle}/>
-    {simple?<SimpleRulesPanel s={s}/>:<DirectionalPanel sides={s.validator.sides} probability={s.probability} candidates={s.decision.candidates}/>}
+    <IndicatorContext managed={quant} context={s.validator.market_context} stale={stale || Math.floor(uiNow / 300) * 300 !== s.cycle}/>
+    {quant?<QuantRiskPanel s={s} stale={stale}/>:simple?<SimpleRulesPanel s={s}/>:<DirectionalPanel sides={s.validator.sides} probability={s.probability} candidates={s.decision.candidates}/>}
     <section className="live-grid">
     <article className="panel">
     <div className="panelhead">
@@ -134,7 +136,7 @@ export default function App() {
         <span>{g.name}</span>
         <b>{g.ok ? 'PASS' : 'WAIT'}</b>
         </div>)}</div>
-    <p className="model-note">{simple ? 'Reglas edge-laya-v1: indicadores como contexto; Q diagnóstico. Las cuotas y la resolución siguen siendo oficiales; sin fallback sintético. Cuenta paper independiente.' : s.profile === 'gan_laya' ? 'La dirección procede de la GAN. Se exigen concordancia técnica y aprobación real MLX >70%, EV neto >0.05 y tamaño fijo de $1 con tasas. Las filas exploratorias anteriores no se reclasifican como validadas.' : s.profile === 'exploratory' ? 'Estas operaciones ejercitan el simulador y no cuentan como señales aprobadas. Importe total fijo de $1 con tasas. Se elige la cuota menor disponible; se permiten fracciones paper por debajo del mínimo real, identificadas en la tabla. Sin exigir aprobación de la señal.' : ''} {s.signal_note}</p>
+    <p className="model-note">{quant ? 'Quant-risk-v1: edge neto ≥4pp y EV positivo, R/R terminal ≥2, riesgo ATR y Half-Kelly. Stops paper al bid fresco; sin bid no se inventa una salida. Q diagnóstico.' : simple ? 'Reglas edge-laya-v1: indicadores como contexto; Q diagnóstico. Las cuotas y la resolución siguen siendo oficiales; sin fallback sintético. Cuenta paper independiente.' : s.profile === 'gan_laya' ? 'La dirección procede de la GAN. Se exigen concordancia técnica y aprobación real MLX >70%, EV neto >0.05 y tamaño fijo de $1 con tasas. Las filas exploratorias anteriores no se reclasifican como validadas.' : s.profile === 'exploratory' ? 'Estas operaciones ejercitan el simulador y no cuentan como señales aprobadas. Importe total fijo de $1 con tasas. Se elige la cuota menor disponible; se permiten fracciones paper por debajo del mínimo real, identificadas en la tabla. Sin exigir aprobación de la señal.' : ''} {s.signal_note}</p>
     <p className="model-note">La liquidación live espera el resultado oficial de Polymarket. La referencia del gráfico es spot Binance.</p>
     </article>
     <article className="panel">
@@ -153,7 +155,7 @@ export default function App() {
     <TradeHistory s={s} uiNow={uiNow} filter={filter} setFilter={setFilter}/>
     <footer>
     <span>LAYA RESEARCH ENGINE <i /> PAPER TRADING ONLY</span>
-    <span>{simple ? 'EDGE + VETO LAYA · EXPERIMENTO $1' : s.profile === 'gan_laya' ? 'GAN + LAYA VALIDADOS · $1 TOTAL POR ENTRADA' : s.profile === 'exploratory' ? 'SIMULACIÓN EXPLORATORIA · $1 por ciclo · CUENTA SEPARADA' : 'GAN experimental · Half-Kelly · Máx. 5% por entrada'}</span>
+    <span>{quant ? 'QUANT-RISK-V1 · EXPERIMENTO $1' : simple ? 'EDGE + VETO LAYA · EXPERIMENTO $1' : s.profile === 'gan_laya' ? 'GAN + LAYA VALIDADOS · $1 TOTAL POR ENTRADA' : s.profile === 'exploratory' ? 'SIMULACIÓN EXPLORATORIA · $1 por ciclo · CUENTA SEPARADA' : 'GAN experimental · Half-Kelly · Máx. 5% por entrada'}</span>
     </footer>
     </main>
     </div>;

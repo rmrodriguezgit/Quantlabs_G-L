@@ -1,13 +1,14 @@
 {
   "name": "laya-paper-terminal",
-  "version": "1.3.0-rc.1",
+  "version": "1.4.0-rc.1",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "test:parity": "node --test tests/refactor-parity.test.mjs",
     "test:market": "node --experimental-strip-types --test tests/binaryMarket.test.ts",
-    "dev": "vite --host 127.0.0.1"
+    "dev": "vite --host 127.0.0.1",
+    "test:quant": "node --test tests/quant-risk.test.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",

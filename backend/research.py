@@ -24,6 +24,11 @@ if os.getenv('LAYA_EXECUTION')=='edge_laya':
     COHORT='v1.3.0-rc.1-edge-laya-v1-anchor30to15'
     VARIANTS=[('edge_laya','Edge + veto LAYA (shadow sin confirmación temporal)')]
 
+if os.getenv('LAYA_EXECUTION')=='quant_laya':
+    VERSION='1.4.0-rc.1'
+    COHORT='v1.4.0-rc.1-quant-risk-v1'
+    VARIANTS=[]  # Actual managed trades are assessed from the account, not a hold shadow.
+
 
 class ResearchStore:
     def __init__(self,path):
@@ -65,7 +70,7 @@ class ResearchStore:
         p=snapshot.get('probability') if quality.get('healthy') and fresh else None
         if p is not None and (not math.isfinite(p) or not 0<=p<=1):p=None
         # Keep raw contemporaneous evidence, including rejected and unavailable signals.
-        payload={k:snapshot.get(k) for k in ('mode','profile','cycle','remaining','price','reference','data_updated_at','estimator','gan_quality','model_ready','validator','decision','odds','gates','blockers','error')}
+        payload={k:snapshot.get(k) for k in ('mode','profile','cycle','remaining','price','reference','data_updated_at','estimator','gan_quality','model_ready','validator','decision','odds','gates','blockers','error','telemetry')}
         payload.update(version=VERSION,cohort=COHORT)
         condition=odds.get('condition_id') if live and odds.get('slug')==f'btc-updown-5m-{cycle}' else None
         with self.db:
@@ -163,7 +168,7 @@ class ResearchStore:
         result=dict(cohort=COHORT,version=VERSION,observations=counts['n'],fresh_observations=counts['fresh'] or 0,since=counts['since'],
             samples=len(rows),resolved=len(resolved),pending=len(rows)-len(resolved),brier=brier,brier_reference=.25,
             variants=variants,calibration=bins,blockers=sorted([dict(reason=k,count=v) for k,v in blockers.items()],key=lambda x:-x['count']),
-            protocol=('Perfil experimental: señal anclada 30–15s, edge neto ≥0.04 y veto LAYA ≥0.35; sin confirmación de 3 ticks. No equivale a las entradas de la cuenta.' if os.getenv('LAYA_EXECUTION')=='edge_laya' else 'Misma señal por ciclo, primera lectura válida entre 30s y 15s del cierre; tamaño paper $1; EV>0.05; sin filtro Q. No altera órdenes.'),
+            protocol=('Quant: auditoría de señales. Las métricas de la cuenta incluyen salidas reales paper; sin shadow de hold confundido con gestión ATR.' if os.getenv('LAYA_EXECUTION')=='quant_laya' else 'Perfil experimental: señal anclada 30–15s, edge neto ≥0.04 y veto LAYA ≥0.35; sin confirmación de 3 ticks. No equivale a las entradas de la cuenta.' if os.getenv('LAYA_EXECUTION')=='edge_laya' else 'Misma señal por ciclo, primera lectura válida entre 30s y 15s del cierre; tamaño paper $1; EV>0.05; sin filtro Q. No altera órdenes.'),
             stress_note='Estrés hipotético: +$0.01 por token, más tasas. No reconstruye latencia ni profundidad posterior.',
             evidence='Recopilación prospectiva; todavía no demuestra ventaja ni probabilidades calibradas.' if len(resolved)<200 else 'Muestra prospectiva descriptiva; contrastar incertidumbre y periodos posteriores antes de ajustar reglas.')
         self._cached=result;self._cached_at=time.monotonic()

@@ -24,11 +24,22 @@ export type Trade = {
     entry_ev?: number;
     entry_edge?:number|null;
     rules_version?:string|null;
+    risk_version?:string|null;
+    entry_spot?:number|null;
+    atr_at_entry?:number|null;
+    favorable_spot?:number|null;
+    exit_price?:number|null;
+    exit_spot?:number|null;
+    exit_time?:number|null;
+    exit_reason?:string|null;
+    exit_pending?:string|null;
+    exit_fee?:number;
     below_minimum?: boolean;
     gan_probability?: number | null;
     laya_model_probability?: number | null;
 };
 export type State = {
+    telemetry?:Record<string,number>;
     timestamp: number;
     mode: string;
     profile?: string;
@@ -42,6 +53,7 @@ export type State = {
     reason: string;
     odds: MarketOdds;
     validator: {
+        trend_context?:{sma50:number|null;sma200:number|null;ma_cross:string|null;trend:string;macd:number|null;macd_signal:number|null;bollinger:{lower:number;mid:number;upper:number}|null};
         market_context?: MarketContext;
         sides?: Record<string, SideAudit>;
         score: number;
@@ -52,6 +64,7 @@ export type State = {
         model_probability: number | null;
     };
     decision: {
+        risk?:{risk_budget:number;risk_fraction:number;kelly_budget:number;ruin:number|null;ruin_definition:string;atr:number|null;daily_pnl:number;open_risk:number};
         action: string;
         ev: number;
         fraction: number;
@@ -61,6 +74,7 @@ export type State = {
             ev: number;
             probability_pass: boolean;
             ev_pass: boolean;
+            rr?:number|null;
             edge?:number|null;
             laya_probability?:number|null;
             laya_pass?:boolean;
@@ -68,6 +82,7 @@ export type State = {
         }>;
     };
     account: {
+        performance?:{sharpe:number|null;sortino:number|null;n:number};
         cash: number;
         balance: number;
         pnl: number;

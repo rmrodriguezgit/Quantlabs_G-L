@@ -16,14 +16,15 @@ from .research import ResearchStore
 from .engine import PaperTradingEngine, LayaMLXValidator, exploratory_decision, gan_laya_decision
 from .market import LiveMarket
 from .simple_rules import edge_decision, SignalConfirmation, execution_gates as simple_gates
+from .quant_risk import quant_decision
 
 log=logging.getLogger('laya')
 MODE=os.getenv('LAYA_MODE','demo')
 if MODE not in ('demo','live'): raise ValueError('LAYA_MODE must be demo or live')
 PROFILE=os.getenv('LAYA_EXECUTION','strategy')
-if PROFILE not in ('strategy','exploratory','gan_laya','edge_laya'): raise ValueError('Unknown execution profile')
-if PROFILE in ('exploratory','gan_laya','edge_laya') and MODE!='live': raise ValueError('Exploratory fills require live market data')
-ACCOUNT_KEY=f'{MODE}-edge-laya' if PROFILE=='edge_laya' else f'{MODE}-exploratory' if PROFILE in ('exploratory','gan_laya') else MODE
+if PROFILE not in ('strategy','exploratory','gan_laya','edge_laya','quant_laya'): raise ValueError('Unknown execution profile')
+if PROFILE in ('exploratory','gan_laya','edge_laya','quant_laya') and MODE!='live': raise ValueError('Exploratory fills require live market data')
+ACCOUNT_KEY=f'{MODE}-quant-laya' if PROFILE=='quant_laya' else f'{MODE}-edge-laya' if PROFILE=='edge_laya' else f'{MODE}-exploratory' if PROFILE in ('exploratory','gan_laya') else MODE
 DATA=Path(__file__).parent/'data'
 engine=PaperTradingEngine(DATA/f'{ACCOUNT_KEY}.json')
 research=ResearchStore(DATA/f'{MODE}-research.sqlite3')
@@ -101,11 +102,11 @@ async def loop():
     model_task=asyncio.create_task(load_models())
     try:
         async with httpx.AsyncClient(timeout=8,headers={'User-Agent':'LAYA-Paper-Research/1.0'}) as client:
-            live=LiveMarket(client)
+            live=LiveMarket(client,history=202 if PROFILE=='quant_laya' else 201)
             while True:
                 tick=time.monotonic();now=time.time();cycle=int(now//300)*300
                 try:
-                    market=None;quote_error=None
+                    market=None;quote_error=None;timings={};stage=time.monotonic()
                     if MODE=='live':
                         # Data updates continue even when a model is still downloading.
                         candles,current,cycle=await live.btc();price=current['close'];reference=current['open']
@@ -119,6 +120,11 @@ async def loop():
                         up=.5+.08*math.sin(now/70)
                         market=dict(up=up,down=1-up,source='SINTÉTICAS · DEMO',timestamp=time.time())
                     previous=cycle
+                    timings['ingestion_ms']=(time.monotonic()-stage)*1000;stage=time.monotonic()
+                    # Exits run before inference; a model failure cannot hold up an observed stop.
+                    if PROFILE=='quant_laya':
+                        for trade in engine.manage(time.time(),cycle,price,current.get('timestamp',0),market):
+                            event(f'EXIT PAPER · {trade.side} · {trade.exit_reason} · bid fill {trade.exit_price:.4f} · PnL {trade.pnl:+.4f}','EXIT')
                     if gan is not None and model_task.done():
                         if last_train!=cycle:
                             await asyncio.to_thread(gan.train,[math.log(c['close']/c['open']) for c in candles]);last_train=cycle
@@ -126,23 +132,27 @@ async def loop():
                     elif MODE=='demo':
                         returns=[math.log(c['close']/c['open']) for c in candles]
                         probability=sum(rng.choice(returns)>0 for _ in range(1000))/1000
+                    timings['gan_ms']=(time.monotonic()-stage)*1000;stage=time.monotonic()
                     audit=dict(score=0,rsi=50,approved=False,model_connected=False,model_probability=None,engine='Modelo cargando')
                     if model_task.done():
                         # On load failure do not retry a large checkpoint every second.
                         if validator.load_error and validator.model is None:
                             audit['model_error']=validator.load_error
-                        else: audit=await asyncio.to_thread(validator.validate,candles+[current],probability,'edge' if PROFILE=='edge_laya' else 'strict')
+                        else: audit=await asyncio.to_thread(validator.validate,candles+[current],probability,'quant' if PROFILE=='quant_laya' else 'edge' if PROFILE=='edge_laya' else 'strict')
+                    timings['laya_ms']=(time.monotonic()-stage)*1000
                     now=time.time();remaining=max(0,cycle+300-now)
                     gan_quality=gan.quality.copy() if gan else {'healthy':False,'reason':'GAN no disponible'}
-                    decision=engine.agent.decide(probability,market['up'],market['down'],audit['score'],market.get('fee_rate',0)) if market and PROFILE!='edge_laya' else dict(action='WAIT',ev=0,fraction=0)
+                    decision=engine.agent.decide(probability,market['up'],market['down'],audit['score'],market.get('fee_rate',0)) if market and PROFILE not in ('edge_laya','quant_laya') else dict(action='WAIT',ev=0,fraction=0)
                     models=bool(gan and gan.ready and audit['model_connected']) if MODE=='live' else model_task.done()
                     already=cycle<=engine.blocked_through_cycle or any(t.cycle==cycle for t in engine.trades)
-                    if PROFILE=='edge_laya':
-                        decision=edge_decision(probability,market['up'] if market else 0,market['down'] if market else 0,audit,market.get('fee_rate',0) if market else 0,engine.agent.table)
+                    if PROFILE in ('edge_laya','quant_laya'):
+                        args=(probability,market['up'] if market else 0,market['down'] if market else 0,audit,market.get('fee_rate',0) if market else 0)
+                        decision=quant_decision(*args,engine.snapshot(),price,now,engine.agent.table) if PROFILE=='quant_laya' else edge_decision(*args,engine.agent.table)
                         chosen=decision['candidate']
                         audit={**audit,**audit.get('sides',{}).get(chosen,{})}
                         models=bool(gan and gan.ready and audit.get('model_connected'))
                         gates=simple_gates(now,cycle,market,current.get('timestamp'),models,gan_quality.get('healthy'),engine.paused,already,decision)
+                        if PROFILE=='quant_laya':gates.extend(decision['risk']['checks'])
                         stable=confirmation.observe(cycle,chosen,now,all(g['ok'] for g in gates))
                         decision.update(confirmation_ticks=confirmation.count,stable_seconds=now-confirmation.first if confirmation.first is not None else 0,confirmed_cycle=cycle,confirmed_side=chosen)
                         gates.append(dict(name='Misma dirección válida durante 3 lecturas (≥2s)',ok=stable))
@@ -163,7 +173,7 @@ async def loop():
                         ])
                     else:
                         gates=execution_gates(now,cycle,probability,audit,decision,market,models,engine.paused,already)
-                    if MODE=='live' and PROFILE!='edge_laya':
+                    if MODE=='live' and PROFILE not in ('edge_laya','quant_laya'):
                         gates.insert(2,dict(name='GAN con dispersión y media válidas',ok=bool(gan and gan_quality.get('healthy'))))
                     blockers=[g['name'] for g in gates if not g['ok']]
                     # Inference can cross a boundary; recheck wall clock before any fill.
@@ -182,6 +192,7 @@ async def loop():
                         event(f"{decision['action']} · P(UP)={probability:.3f} · EV={decision['ev']:.3f} · {reason}",'SIGNAL');last_log=now
                     odds={**market,'available':True} if market else {**state['odds'],'available':False,'source':'POLYMARKET NO DISPONIBLE'}
                     state=dict(timestamp=now,mode=MODE,profile=PROFILE,cycle=cycle,remaining=remaining,price=price,reference=reference,probability=probability,estimator='GAN experimental / 1000 escenarios / horizonte restante' if gan else 'Bootstrap DEMO' if MODE=='demo' else 'GAN no disponible',validator=audit,decision=decision,reason=reason,odds=odds,account=engine.snapshot(),candles=candles[-60:],error=quote_error,events=events.copy(),gates=gates,model_ready=models,model_error=validator.load_error,resolution_note='Chainlink TWAP 60s · Liquidación oficial Polymarket' if MODE=='live' else 'Resolución demo',data_updated_at=current.get('timestamp',now),gan_quality={**gan_quality,'up_scenarios':gan.last_up_scenarios if gan else 0,'scenarios':gan.last_scenario_count if gan else 0},blockers=blockers,signal_note='Probabilidad experimental de spot Binance; no calibrada para TWAP Chainlink')
+                    state['telemetry']={**timings,'loop_ms':(time.monotonic()-tick)*1000,'data_age_ms':(now-current.get('timestamp',now))*1000,'target_ms':1000}
                 except Exception as exc:
                     # Expected feed interruptions must not flood the server with tracebacks.
                     if time.time()-last_log>=15:

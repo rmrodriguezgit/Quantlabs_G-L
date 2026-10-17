@@ -52,13 +52,24 @@ def read_book(book, token, condition, now):
     return dict(price=p,size=size,timestamp=timestamp,min_size=float(book['min_order_size']))
 
 
+def read_bid(book,token,condition,now):
+    if book.get('asset_id')!=token or book.get('market')!=condition:raise ValueError('Bid de otro mercado')
+    stamp=float(book['timestamp'])/1000
+    if not -3<=now-stamp<=12:raise ValueError('Bid obsoleto')
+    bids=[(float(x['price']),float(x['size'])) for x in book.get('bids',[]) if float(x['size'])>0]
+    if any(not (math.isfinite(p) and 0<p<1 and math.isfinite(s) and s>0) for p,s in bids):raise ValueError('Bid inválido')
+    if not bids:return None
+    p,size=max(bids)
+    return dict(price=p,size=size,timestamp=stamp)
+
+
 class LiveMarket:
-    def __init__(self, client):
-        self.client=client;self.cached=None;self.cached_at=0
+    def __init__(self, client, history=201):
+        self.client=client;self.cached=None;self.cached_at=0;self.history=history
     async def get(self,url,params=None):
         r=await self.client.get(url,params=params);r.raise_for_status();return r.json()
     async def btc(self):
-        raw=await self.get('https://api.binance.com/api/v3/klines',{'symbol':'BTCUSDT','interval':'5m','limit':201,'endTime':int(time.time()*1000)})
+        raw=await self.get('https://api.binance.com/api/v3/klines',{'symbol':'BTCUSDT','interval':'5m','limit':self.history,'endTime':int(time.time()*1000)})
         now=time.time();current=raw[-1]; cycle=int(now//300)*300
         if int(current[0])//1000!=cycle:
             raise ValueError('La vela Binance no corresponde al ciclo actual')
@@ -84,8 +95,10 @@ class LiveMarket:
         books=[by_token[t] for t in tokens]
         quotes={label.upper():read_book(book,token,m['conditionId'],time.time()) for label,token,book in zip(labels,tokens,books)}
         quotes={side:q for side,q in quotes.items() if q is not None}
-        if not quotes: raise ValueError('Ningún resultado tiene vendedores')
-        return dict(up=quotes.get('UP',{}).get('price',0),down=quotes.get('DOWN',{}).get('price',0),source='POLYMARKET · ASKS EN VIVO',quotes=quotes,slug=m['slug'],condition_id=m['conditionId'],question=m['question'],resolution=m['resolutionSource'],fee_rate=float(m.get('feeSchedule',{}).get('rate',0)) if m.get('feesEnabled') else 0,timestamp=time.time())
+        bids={label.upper():read_bid(book,token,m['conditionId'],time.time()) for label,token,book in zip(labels,tokens,books)}
+        bids={side:q for side,q in bids.items() if q is not None}
+        if not quotes and not bids: raise ValueError('Libro vacío en ambos lados')
+        return dict(up=quotes.get('UP',{}).get('price',0),down=quotes.get('DOWN',{}).get('price',0),source='POLYMARKET · ASKS EN VIVO',quotes=quotes,bids=bids,slug=m['slug'],condition_id=m['conditionId'],question=m['question'],resolution=m['resolutionSource'],fee_rate=float(m.get('feeSchedule',{}).get('rate',0)) if m.get('feesEnabled') else 0,timestamp=time.time())
     async def candle_close(self,cycle):
         if cycle%300 or time.time()<cycle+300:
             raise ValueError('La ventana BTC todavía no ha cerrado')

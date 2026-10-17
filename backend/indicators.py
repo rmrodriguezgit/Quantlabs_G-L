@@ -36,3 +36,28 @@ def market_context(closed,price,period=14,lookback=50):
                 atr=dict(period=period,value=atr,percent=atr/rows[-1][3]*100,method='Wilder',timeframe='5m',closed_candles=len(rows)),
                 fibonacci=fib,fibonacci_reason=None if fib else 'Sin extremos temporalmente ordenables; no se supone el orden dentro de una vela',
                 note='Contexto descriptivo, sin votos ni cambios en GAN, LAYA, Q o entradas; no prueba ventaja')
+
+
+def trend_indicators(closed):
+    """No partial candle, centered window or future pivot. SMA200 requires 200 bars."""
+    closes=[float(c['close']) for c in closed]
+    if not closes or not all(math.isfinite(x) and x>0 for x in closes):return {'available':False}
+    def ema(values,n):
+        x=values[0];out=[x]
+        for v in values[1:]:x+=2/(n+1)*(v-x);out.append(x)
+        return out
+    fast=ema(closes,12);slow=ema(closes,26);macd=[a-b for a,b in zip(fast,slow)];signal=ema(macd,9)
+    sma50=sum(closes[-50:])/50 if len(closes)>=50 else None
+    sma200=sum(closes[-200:])/200 if len(closes)>=200 else None
+    cross=None
+    if len(closes)>=201:
+        prev=sum(closes[-51:-1])/50-sum(closes[-201:-1])/200;cur=sma50-sma200
+        cross='UP' if prev<=0<cur else 'DOWN' if prev>=0>cur else 'NONE'
+    bb=None
+    if len(closes)>=20:
+        mid=sum(closes[-20:])/20;std=(sum((x-mid)**2 for x in closes[-20:])/20)**.5
+        bb=dict(mid=mid,upper=mid+2*std,lower=mid-2*std,period=20,std=2)
+    return dict(available=True,sma50=sma50,sma200=sma200,ma_cross=cross,
+                trend='UP' if sma50 is not None and sma200 is not None and sma50>sma200 else 'DOWN' if sma50 is not None and sma200 is not None and sma50<sma200 else 'NEUTRAL',
+                macd=macd[-1] if len(closes)>=26 else None,macd_signal=signal[-1] if len(closes)>=35 else None,
+                bollinger=bb,closed_candles=len(closes),ema_seed='Primer cierre; warmup mínimo explícito')

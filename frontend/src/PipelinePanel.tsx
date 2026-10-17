@@ -6,7 +6,7 @@ export function PipelinePanel({ s, stale, dataAge }: {
     dataAge: number;
 }) {
     const a = s.account;
-    const simple=s.profile==='edge_laya';
+    const simple=['edge_laya','quant_laya'].includes(s.profile??'');
     return (<section className="panel signal">
     <div className="panelhead">
     <h2>Pipeline de inteligencia</h2>
@@ -39,7 +39,7 @@ export function PipelinePanel({ s, stale, dataAge }: {
     <div className="pipeline-directions">{(['UP', 'DOWN'] as const).map(side => { const audit = s.validator.sides?.[side]; return <span key={side}>LAYA {side}: {audit?.model_probability != null ? `${(audit.model_probability * 100).toFixed(1)}%` : '—'} · {audit?.approved ? (simple?'SIN VETO':'APROBADO') : 'WAIT'}</span>; })}</div>
     <div>
     <TowerControl />
-    <span>{simple?'03 / EDGE · Q DIAGNÓSTICO':'03 / Q-LEARNING'}<small>EV {s.decision.ev.toFixed(3)} · {['exploratory', 'gan_laya','edge_laya'].includes(s.profile ?? '') ? 'Importe fijo $1' : `Kelly ${(s.decision.fraction * 100).toFixed(1)}%`}</small>
+    <span>{simple?'03 / EDGE · Q DIAGNÓSTICO':'03 / Q-LEARNING'}<small>EV {s.decision.ev.toFixed(3)} · {['exploratory', 'gan_laya','edge_laya','quant_laya'].includes(s.profile ?? '') ? 'Importe fijo $1' : `Kelly ${(s.decision.fraction * 100).toFixed(1)}%`}</small>
     </span>
     <b className="action">{s.decision.action}</b>
     </div>
