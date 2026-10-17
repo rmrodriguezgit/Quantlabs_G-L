@@ -25,8 +25,8 @@ if os.getenv('LAYA_EXECUTION')=='edge_laya':
     VARIANTS=[('edge_laya','Edge + veto LAYA (shadow sin confirmación temporal)')]
 
 if os.getenv('LAYA_EXECUTION')=='quant_laya':
-    VERSION='1.4.0-rc.1'
-    COHORT='v1.4.0-rc.1-quant-risk-v1'
+    VERSION='1.4.0-rc.2'
+    COHORT='v1.4.0-rc.2-quant-risk-v1-reset100'
     VARIANTS=[]  # Actual managed trades are assessed from the account, not a hold shadow.
 
 

@@ -126,3 +126,17 @@ class QuantTests(unittest.TestCase):
         self.assertIsNone(performance([])['sharpe'])
         trades=[dict(status='EXITED',stake=1,pnl=2),dict(status='LOST',stake=1,pnl=-1)]
         x=performance(trades);self.assertAlmostEqual(x['sharpe'],.5/math.sqrt(4.5));self.assertEqual(x['win_rate'],.5)
+
+
+class BankrollResetTests(unittest.TestCase):
+    def test_initial_hundred_persists_and_sets_pnl_and_drawdown_basis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'fresh.json';e=PaperTradingEngine(path,initial_bankroll=100)
+            self.assertEqual(e.snapshot()['balance'],100)
+            self.assertEqual(e.snapshot()['pnl'],0)
+            self.assertEqual(e.agent.table,{})
+            e.cash=99;e.equity.append(99);e.save()
+            restored=PaperTradingEngine(path)
+            self.assertEqual(restored.initial_bankroll,100)
+            self.assertEqual(restored.snapshot()['pnl'],-1)
+            self.assertAlmostEqual(restored.snapshot()['max_drawdown'],.01)

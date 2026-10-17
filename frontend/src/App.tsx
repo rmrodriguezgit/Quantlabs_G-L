@@ -73,7 +73,7 @@ export default function App() {
     <Radio size={15}/>
     <span>{s.mode === 'demo' ? 'ENTORNO DEMO · Precios y cuotas sintéticos. Rendimiento sin valor predictivo.' : quant ? 'QUANT EXPERIMENTAL · EV neto >0 · R/R ≥2 · ATR · LAYA · riesgo máximo $1 · cuenta independiente.' : simple ? 'EXPERIMENTO · Edge neto ≥4 puntos · LAYA veto ≥35% · 3 lecturas · $1 · cuenta independiente.' : s.profile === 'gan_laya' ? 'GAN + LAYA · Cuotas reales · $1 por ciclo · P(GAN)>58% UP / <42% DOWN · LAYA y concordancia >70%.' : s.profile === 'exploratory' ? 'SIMULACIÓN EXPLORATORIA · Cuotas reales · $1 por ciclo · Sin exigir ventana, EV ni aprobación LAYA.' : 'PAPER LIVE · BTC Binance + asks Polymarket. Entradas automáticas sujetas a todos los filtros.'}</span>
     <span className="right">SIN FONDOS REALES</span>
-    </div>{(s.error || s.model_error) && <div className="error">{s.error || s.model_error}</div>}<section className="metrics">{[[quant ? 'Bankroll paper Quant + LAYA' : simple ? 'Bankroll experimental Edge + LAYA' : s.profile === 'gan_laya' ? 'Bankroll paper GAN + LAYA' : s.profile === 'exploratory' ? 'Bankroll exploratorio' : 'Bankroll', money(a.balance), 'Capital contable · coste de posiciones'], ['PnL realizado', money(a.pnl), `${(a.pnl / 10).toFixed(2)}% desde el inicio`], ['Win rate', `${(a.win_rate * 100).toFixed(1)}%`, `${a.total_trades} liquidadas · ${a.trades.filter(t => t.status === 'OPEN').length} abiertas`], ['Profit factor', a.profit_factor?.toFixed(2) ?? '—', `Drawdown máx. ${(a.max_drawdown * 100).toFixed(2)}%`]].map(([label, value, note]) => <article key={label}>
+    </div>{(s.error || s.model_error) && <div className="error">{s.error || s.model_error}</div>}<section className="metrics">{[[quant ? 'Bankroll paper Quant + LAYA' : simple ? 'Bankroll experimental Edge + LAYA' : s.profile === 'gan_laya' ? 'Bankroll paper GAN + LAYA' : s.profile === 'exploratory' ? 'Bankroll exploratorio' : 'Bankroll', money(a.balance), 'Capital contable · coste de posiciones'], ['PnL realizado', money(a.pnl), `${(a.pnl / (a.initial_bankroll ?? 1000) * 100).toFixed(2)}% desde el inicio`], ['Win rate', `${(a.win_rate * 100).toFixed(1)}%`, `${a.total_trades} liquidadas · ${a.trades.filter(t => t.status === 'OPEN').length} abiertas`], ['Profit factor', a.profit_factor?.toFixed(2) ?? '—', `Drawdown máx. ${(a.max_drawdown * 100).toFixed(2)}%`]].map(([label, value, note]) => <article key={label}>
         <label>{label}</label>
         <strong>{value}</strong>
         <small>{note}</small>
@@ -117,7 +117,7 @@ export default function App() {
     </div>
     <Chart values={a.equity}/>
     <div className="chartfoot">
-    <span>INICIO · $1,000.00</span>
+    <span>INICIO · {money(a.initial_bankroll ?? 1000)}</span>
     <span>{a.equity.length - 1} liquidaciones</span>
     </div>
     </section>

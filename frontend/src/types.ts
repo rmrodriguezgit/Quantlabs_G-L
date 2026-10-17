@@ -83,6 +83,7 @@ export type State = {
     };
     account: {
         performance?:{sharpe:number|null;sortino:number|null;n:number};
+        initial_bankroll?:number;
         cash: number;
         balance: number;
         pnl: number;

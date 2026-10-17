@@ -1,11 +1,21 @@
 # Quantlabs G&L · LAYA
 
-**Versión de esta rama: v1.4.0-rc.1 — motor cuantitativo experimental, sin fusión**
+**Versión de esta rama: v1.4.0-rc.2 — motor cuantitativo experimental, sin fusión**
 
 Aplicación local de **paper trading** para BTC Up/Down de 5 minutos en Polymarket.
 Combina datos públicos de Binance, asks reales de Polymarket, una GAN experimental,
 auditorías LAYA MLX y una política Q tabular. El perfil principal simula entradas de
 **$1 total, tasas incluidas**. No envía órdenes reales ni necesita una wallet.
+
+## Reinicio solicitado · v1.4.0-rc.2
+
+La cuenta Quant se reinicia con **$100 USD paper**, histórico vacío, curva desde $100,
+PnL y drawdown cero, Q vacía y auditoría/eventos nuevos. Entradas de $1 se conservan.
+El capital inicial se persiste: PnL porcentual y drawdown usan el importe correcto,
+incluso tras reiniciar el proceso. El perfil Quant ya no muestra el benchmark offline
+histórico de otra sesión. Los datos previos se apartan del motor; no se mezclan ni
+se publican. Los límites de riesgo siguen activos: con $100 el presupuesto diario
+de pérdida/exposición es $2 y el dólar representa 1% del capital inicial.
 
 ## Perfil actual: Quant + LAYA · gestión de riesgo
 
@@ -20,7 +30,7 @@ Controles nuevos: exposición total ≤2%, pérdida diaria UTC más exposición 
 
 SMA50/200, MACD y Bollinger cerrados aportan contexto a una llamada MLX con preguntas UP/DOWN independientes. El dashboard incorpora presupuesto, EV, R/R, ATR de entrada, salidas, Sharpe/Sortino por operación y latencia medida. Q continúa como diagnóstico.
 
-Cuenta aislada nueva de $1000 en `backend/data/live-quant-laya.json`; la cuenta edge anterior queda conservada. No se toca la cuenta/código en main/8000. Se puede volver con `LAYA_EXECUTION=edge_laya ./start-candidate.sh` tras detener el proceso de 8002.
+Cuenta aislada con capital inicial actual de $100 en `backend/data/live-quant-laya.json`; la cuenta edge anterior queda conservada. No se toca la cuenta/código en main/8000. Se puede volver con `LAYA_EXECUTION=edge_laya ./start-candidate.sh` tras detener el proceso de 8002.
 
 El replay de 25 ciclos con split temporal y reglas fijas dio +$0.99 en 8 resueltas del primer tramo y −$2.00 en 2 resueltas del tramo final. No demuestra rentabilidad. Son resultados de mantener hasta resolución: faltan bids históricos para validar gestión ATR. Los cuatro posts de X no fueron accesibles y no se inventó alpha on-chain.
 

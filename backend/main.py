@@ -26,7 +26,7 @@ if PROFILE not in ('strategy','exploratory','gan_laya','edge_laya','quant_laya')
 if PROFILE in ('exploratory','gan_laya','edge_laya','quant_laya') and MODE!='live': raise ValueError('Exploratory fills require live market data')
 ACCOUNT_KEY=f'{MODE}-quant-laya' if PROFILE=='quant_laya' else f'{MODE}-edge-laya' if PROFILE=='edge_laya' else f'{MODE}-exploratory' if PROFILE in ('exploratory','gan_laya') else MODE
 DATA=Path(__file__).parent/'data'
-engine=PaperTradingEngine(DATA/f'{ACCOUNT_KEY}.json')
+engine=PaperTradingEngine(DATA/f'{ACCOUNT_KEY}.json',initial_bankroll=100. if PROFILE=='quant_laya' else 1000.)
 research=ResearchStore(DATA/f'{MODE}-research.sqlite3')
 validator=LayaMLXValidator()
 gan=None
@@ -34,7 +34,7 @@ gan=None
 def research_report():
     report=research.report()
     evaluation=Path(__file__).parent/'training'/'latest_evaluation.json'
-    if evaluation.exists():
+    if evaluation.exists() and PROFILE!='quant_laya':
         try:report={**report,'offline':json.loads(evaluation.read_text())}
         except (OSError,ValueError):pass
     return report

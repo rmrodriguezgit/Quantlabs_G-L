@@ -191,15 +191,17 @@ class Position:
 
 
 class PaperTradingEngine:
-    def __init__(self,path=None):
+    def __init__(self,path=None,initial_bankroll=1000.):
         self.path=Path(path) if path else None
-        self.cash=1000.; self.trades=[]; self.equity=[1000.]; self.agent=QLearningAgent(); self.paused=False; self.blocked_through_cycle=-1
+        if not math.isfinite(initial_bankroll) or initial_bankroll<=0:raise ValueError('Invalid initial bankroll')
+        self.initial_bankroll=float(initial_bankroll)
+        self.cash=self.initial_bankroll; self.trades=[]; self.equity=[self.initial_bankroll]; self.agent=QLearningAgent(); self.paused=False; self.blocked_through_cycle=-1
         if self.path and self.path.exists():
-            d=json.loads(self.path.read_text()); self.cash=d['cash']; self.trades=[Position(**x) for x in d['trades']]; self.equity=d['equity']; self.agent.table=d['q']; self.blocked_through_cycle=d.get('blocked_through_cycle',-1)
+            d=json.loads(self.path.read_text()); self.initial_bankroll=d.get('initial_bankroll',d.get('equity',[initial_bankroll])[0]); self.cash=d['cash']; self.trades=[Position(**x) for x in d['trades']]; self.equity=d['equity']; self.agent.table=d['q']; self.blocked_through_cycle=d.get('blocked_through_cycle',-1)
     def save(self):
         if self.path:
             self.path.parent.mkdir(parents=True,exist_ok=True)
-            temp=self.path.with_suffix('.tmp'); temp.write_text(json.dumps(dict(cash=self.cash,trades=[asdict(x) for x in self.trades],equity=self.equity,q=self.agent.table,blocked_through_cycle=self.blocked_through_cycle))); temp.replace(self.path)
+            temp=self.path.with_suffix('.tmp'); temp.write_text(json.dumps(dict(initial_bankroll=self.initial_bankroll,cash=self.cash,trades=[asdict(x) for x in self.trades],equity=self.equity,q=self.agent.table,blocked_through_cycle=self.blocked_through_cycle))); temp.replace(self.path)
     def enter(self,cycle,now,reference,decision,score,up,down,market=None,validator_status='TECHNICAL_BASELINE'):
         if self.paused or cycle<=self.blocked_through_cycle or decision['action']=='WAIT' or any(t.cycle==cycle for t in self.trades): return
         if decision.get('profile') in ('edge_laya','quant_laya'):
@@ -327,7 +329,7 @@ class PaperTradingEngine:
     def snapshot(self):
         done=[t for t in self.trades if t.status!='OPEN']; profits=sum(max(t.pnl,0) for t in done); losses=-sum(min(t.pnl,0) for t in done)
         balance=self.cash+sum(t.stake for t in self.trades if t.status=='OPEN')
-        peak=1000.; dd=0.
+        peak=self.initial_bankroll; dd=0.
         for value in self.equity:
             peak=max(peak,value); dd=max(dd,(peak-value)/peak)
-        return dict(cash=self.cash,balance=balance,pnl=balance-1000,win_rate=sum(t.pnl>0 for t in done)/len(done) if done else 0,total_trades=len(done),profit_factor=profits/losses if losses else None,max_drawdown=dd,equity=self.equity,trades=[asdict(t) for t in reversed(self.trades)],paused=self.paused,performance=performance([asdict(t) for t in self.trades]))
+        return dict(initial_bankroll=self.initial_bankroll,cash=self.cash,balance=balance,pnl=balance-self.initial_bankroll,win_rate=sum(t.pnl>0 for t in done)/len(done) if done else 0,total_trades=len(done),profit_factor=profits/losses if losses else None,max_drawdown=dd,equity=self.equity,trades=[asdict(t) for t in reversed(self.trades)],paused=self.paused,performance=performance([asdict(t) for t in self.trades]))
