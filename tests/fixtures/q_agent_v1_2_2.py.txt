@@ -1,0 +1,31 @@
+class QLearningAgent:
+    def __init__(self): self.table={}
+    def state(self,p,odds,score): return f'{POLICY_VERSION}:{int(p*10)}:{int(odds*10)}:{int(score*10)}'
+    def decide(self,p,up,down,score,fee_rate=0):
+        if not math.isfinite(p) or not 0<=p<=1:
+            raise ValueError('Probability must be finite and between zero and one')
+        # Independently price both binary outcomes; a rejected UP is not a DOWN signal.
+        candidates={}
+        for direction,prob,ask in [('UP',p,up),('DOWN',1-p,down)]:
+            cost=ask*(1+fee_rate*(1-ask)) if math.isfinite(ask) else 0
+            ev_side=prob/cost-1 if 0<cost<1 else -1
+            policy=POLICIES[direction]
+            eligible=signal_side(p)==direction
+            candidates[direction]=dict(probability=prob,ask=ask,effective_price=cost,
+                                       ev=ev_side,probability_pass=eligible,ev_pass=ev_side>policy.min_ev)
+        side=signal_side(p)
+        policy=POLICIES[side] if side!='WAIT' else POLICIES['UP']
+        probability=p if side=='UP' else 1-p
+        price=up if side=='UP' else down
+        price=price*(1+fee_rate*(1-price))
+        ev=probability/price-1 if 0<price<1 else -1
+        fraction=min(.05,max(0,.5*(probability-price)/(1-price))) if 0<price<1 else 0
+        state=self.state(p,price,score)
+        q=self.table.setdefault(state,{'WAIT':0.,'UP':0.,'DOWN':0.})
+        # Hard gates cannot be bypassed by exploration or Q-values.
+        action=side if side!='WAIT' and score>policy.min_technical and ev>policy.min_ev and q[side]>=q['WAIT'] else 'WAIT'
+        return dict(action=action,candidate=side,candidates=candidates,ev=ev,fraction=fraction,state=state,q=q.copy())
+    def update(self,state,side,reward):
+        # Each settled candle is a terminal episode: no bootstrap from future data.
+        values=self.table.setdefault(state,{'WAIT':0.,'UP':0.,'DOWN':0.})
+        values[side]+=.1*(reward-values[side])

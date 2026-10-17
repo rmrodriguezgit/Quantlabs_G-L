@@ -60,20 +60,20 @@ class QLearningAgent:
         if not math.isfinite(p) or not 0<=p<=1:
             raise ValueError('Probability must be finite and between zero and one')
         # Independently price both binary outcomes; a rejected UP is not a DOWN signal.
+        side=signal_side(p)
         candidates={}
         for direction,prob,ask in [('UP',p,up),('DOWN',1-p,down)]:
             cost=ask*(1+fee_rate*(1-ask)) if math.isfinite(ask) else 0
             ev_side=prob/cost-1 if 0<cost<1 else -1
             policy=POLICIES[direction]
-            eligible=signal_side(p)==direction
+            eligible=side==direction
             candidates[direction]=dict(probability=prob,ask=ask,effective_price=cost,
                                        ev=ev_side,probability_pass=eligible,ev_pass=ev_side>policy.min_ev)
-        side=signal_side(p)
         policy=POLICIES[side] if side!='WAIT' else POLICIES['UP']
-        probability=p if side=='UP' else 1-p
-        price=up if side=='UP' else down
-        price=price*(1+fee_rate*(1-price))
-        ev=probability/price-1 if 0<price<1 else -1
+        selected=candidates[side if side!='WAIT' else 'DOWN']
+        probability=selected['probability']
+        price=selected['effective_price']
+        ev=selected['ev']
         fraction=min(.05,max(0,.5*(probability-price)/(1-price))) if 0<price<1 else 0
         state=self.state(p,price,score)
         q=self.table.setdefault(state,{'WAIT':0.,'UP':0.,'DOWN':0.})
@@ -101,7 +101,7 @@ def exploratory_decision(probability, up, down, fee_rate=0.):
 def gan_laya_decision(agent, probability, up, down, audit, fee_rate=0.):
     """GAN chooses side; technical agreement and actual MLX approval are mandatory."""
     d=agent.decide(probability,up,down,audit['score'],fee_rate)
-    candidate=signal_side(probability)
+    candidate=d['candidate']
     policy=POLICIES[candidate] if candidate!='WAIT' else POLICIES['UP']
     d['q_permits']=candidate!='WAIT' and d['q'][candidate]>=d['q']['WAIT']
     mlp=audit.get('model_probability')

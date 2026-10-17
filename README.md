@@ -1,11 +1,44 @@
 # Quantlabs G&L · LAYA
 
-**Versión actual: v1.2.2 — pipeline UP/DOWN y contexto ATR/Fibonacci**
+**Versión de esta rama: v1.2.3-rc.1 — simplificación estructural, pendiente de fusión**
 
 Aplicación local de **paper trading** para BTC Up/Down de 5 minutos en Polymarket.
 Combina datos públicos de Binance, asks reales de Polymarket, una GAN experimental,
 auditorías LAYA MLX y una política Q tabular. El perfil principal simula entradas de
 **$1 total, tasas incluidas**. No envía órdenes reales ni necesita una wallet.
+
+## Rama experimental de simplificación
+
+Rama: **`refactor/simplify-pipeline`**. Parte de v1.2.2 y no se ha fusionado con
+`main`. La instalación que opera en el puerto 8000 conserva su código y cuenta.
+Ver [comparación y validación](docs/simplification-review.md). La revisión de [Quantlabs-LY-KY-Q](https://github.com/rmrodriguezgit/Quantlabs-LY-KY-Q)
+motivó separar responsabilidades del frontend; no se sustituyen nuestros modelos
+por los del otro proyecto ni se modifican reglas para obtener más entradas.
+
+- `main.tsx`: solo arranca React; `App.tsx`: compone el dashboard.
+- `types.ts`, `format.ts`, `Chart.tsx`: contratos y utilidades compartidas.
+- `useTrader.ts`: conexión, recepción y reconexión del WebSocket.
+- `PipelinePanel.tsx` y `TradeHistory.tsx`: presentación aislada, con el mismo
+  contenido y controles existentes.
+- `QLearningAgent.decide`: reutiliza el coste/EV ya calculado de cada candidato;
+  la dirección se calcula una sola vez. Se conservan estados, umbrales y Q-table.
+
+Validación: 61 pruebas backend, incluidas 1,200 comparaciones con la implementación
+Q anterior; 8 pruebas del mercado binario; 5 pruebas de HTML equivalente del
+pipeline/histórico; build TypeScript/Vite. Las referencias de comparación se
+congelan en `tests/fixtures/` y `frontend/tests/fixtures/` y no se incluyen en el
+bundle de producción. No demuestra mejora de rentabilidad ni menor latencia.
+
+```sh
+npm --prefix frontend run test:parity
+npm --prefix frontend run test:market
+npm --prefix frontend run build
+```
+
+Para instalar esta candidata en otro checkout, seleccionar primero la rama:
+`git switch refactor/simplify-pipeline`. Probar con una cuenta separada y otro
+puerto antes de proponer la fusión. Los módulos bayesiano, ATR/Fibonacci y WGAN-GP
+siguen en investigación. La política de versiones/README/commits está en `AGENTS.md`.
 
 ## Inicio rápido
 
